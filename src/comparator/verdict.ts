@@ -33,11 +33,9 @@ export function compareCase(name: string, olds: RunResult[], news: RunResult[], 
   };
 }
 
-export function compareSkill(skill: string, results: RunResult[], oldModel: string, newModel: string, tagsOf: (c: string) => string[] = () => []): SkillComparison {
-  const names = [...new Set(results.map((r) => r.case))];
-  const cases = names.map((c) => compareCase(c,
-    results.filter((r) => r.case === c && r.model === oldModel),
-    results.filter((r) => r.case === c && r.model === newModel), tagsOf(c)));
+export function compareSkill(skill: string, olds: RunResult[], news: RunResult[], tagsOf: (c: string) => string[] = () => []): SkillComparison {
+  const names = [...new Set([...olds, ...news].map((r) => r.case))];
+  const cases = names.map((c) => compareCase(c, olds.filter((r) => r.case === c), news.filter((r) => r.case === c), tagsOf(c)));
   const has = (v: CaseVerdict) => cases.some((c) => c.verdict === v);
   const verdict: SkillVerdict = has('REGRESSED') ? 'REGRESSED' : has('INCONCLUSIVE') ? 'INCONCLUSIVE' : has('IMPROVED') ? 'IMPROVED' : 'UNCHANGED';
   const rate = (k: 'old' | 'new') => { const runs = cases.reduce((s, c) => s + c[k].runs, 0); return runs ? cases.reduce((s, c) => s + c[k].passed, 0) / runs : 0; };

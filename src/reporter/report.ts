@@ -31,15 +31,15 @@ export function exitCode(skills: SkillReport[]): number {
   return 0;
 }
 
-export function buildReport(skills: SkillReport[], results: RunResult[], o: { oldModel: string; newModel: string; startedAt: Date; claudeVersion?: string }): Report {
-  const cost = (m: string) => results.filter((r) => r.model === m).reduce((s, r) => s + (r.cost_usd ?? 0), 0);
+export function buildReport(skills: SkillReport[], results: { old: RunResult[]; new: RunResult[] }, o: { oldModel: string; newModel: string; startedAt: Date; claudeVersion?: string }): Report {
+  const cost = (rs: RunResult[]) => rs.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
   return {
     skilldrift_version: require('../../package.json').version,
     promptfoo_version: require(require.resolve('promptfoo').replace(/dist[\/].*$/, 'package.json')).version,
     agent: 'claude', old_model: o.oldModel, new_model: o.newModel,
     ...(o.claudeVersion ? { claude_version: o.claudeVersion } : {}),
     started_at: o.startedAt.toISOString(), finished_at: new Date().toISOString(),
-    cost_usd: { old: cost(o.oldModel), new: cost(o.newModel) },
+    cost_usd: { old: cost(results.old), new: cost(results.new) },
     exit_code: exitCode(skills), skills,
   };
 }

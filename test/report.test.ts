@@ -20,7 +20,7 @@ it('exit code: 1 only for deterministic regressions, 2 for inconclusive/partial'
 it('flags and markdown', () => {
   const sr = s([c('REGRESSED', true, 1)], 'generated');
   expect(sr.flags).toEqual(['generated-cases', 'judge-dependent', 'partial']);
-  const r = buildReport([sr], [], { oldModel: 'a', newModel: 'b', startedAt: new Date() });
+  const r = buildReport([sr], { old: [], new: [] }, { oldModel: 'a', newModel: 'b', startedAt: new Date() });
   expect(r.exit_code).toBe(2);
   const md = toMarkdown(r);
   expect(md).toContain('| s | REGRESSED | 100% | 40% | generated-cases, judge-dependent, partial |');

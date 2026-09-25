@@ -27,6 +27,7 @@ program
   .option('--case <name>', 'only this case')
   .option('--old <model>', 'baseline model')
   .option('--new <model>', 'candidate model')
+  .option('--old-skills-dir <dir>', 'skills directory for the baseline side (default: --skills-dir)')
   .option('--runs <n>', 'runs per case per model', '1')
   .option('--judge <model>', 'judge model for llm_rubric', 'claude-haiku-4-5-20251001')
   .option('--concurrency <n>', 'max concurrent runs', '2')
@@ -35,12 +36,14 @@ program
   .option('--out <dir>', 'report directory (default: <store>/reports/claude/<new-model>/<timestamp>)')
   .option('--format <fmt>', 'md | json | both', 'both')
   .option('--dry-run', 'list skills and resolved cases without running')
-  .action(async (opts: { skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; runs: string; judge: string; concurrency: string; store: string; cache: boolean; out?: string; format: string; dryRun?: boolean }) => {
-    const skills = listSkills(opts.skillsDir)
-      .filter((s) => !opts.skill || s === opts.skill)
-      .map((s) => resolveCases(opts.skillsDir, s))
-      .map((sc) => ({ ...sc, cases: sc.cases.filter((c) => !opts.case || c.name === opts.case) }));
+  .action(async (opts: { skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; oldSkillsDir?: string; runs: string; judge: string; concurrency: string; store: string; cache: boolean; out?: string; format: string; dryRun?: boolean }) => {
+    const resolveSkill = (dir: string, s: string) => {
+      const sc = resolveCases(dir, s);
+      return { ...sc, cases: sc.cases.filter((c) => !opts.case || c.name === opts.case) };
+    };
+    const names = listSkills(opts.skillsDir).filter((s) => !opts.skill || s === opts.skill);
     if (opts.dryRun) {
+      const skills = names.map((s) => resolveSkill(opts.skillsDir, s));
       for (const s of skills) console.log(`${s.skill.padEnd(36)} ${String(s.cases.length).padStart(3)} cases (${s.source})`);
       console.log(`\n${skills.length} skills, ${skills.reduce((n, s) => n + s.cases.length, 0)} cases`);
       return;
@@ -50,37 +53,41 @@ program
     const store = new Store(opts.store);
     const runs = Number(opts.runs);
     const startedAt = new Date();
-    const allResults: RunResult[] = [];
+    const sides = { old: { model: opts.old, dir: opts.oldSkillsDir ?? opts.skillsDir }, new: { model: opts.new, dir: opts.skillsDir } } as const;
+    const all = { old: [] as RunResult[], new: [] as RunResult[] };
     const reports: SkillReport[] = [];
-    for (const sc of skills.filter((s) => s.cases.length > 0)) {
-      const base = { skill: sc.skill, skillHash: hashDir(sc.dir), casesHash: hashCases(sc.cases), judge: opts.judge, runs };
-      const keys = new Map([...new Set([opts.old, opts.new])].map((m) => [m, cacheKey({ ...base, model: m })]));
-      const results: RunResult[] = [];
-      const toRun: string[] = [];
-      for (const [model, key] of keys) {
+    for (const name of names) {
+      const scNew = resolveSkill(sides.new.dir, name);
+      if (!scNew.cases.length) continue;
+      const results = { old: [] as RunResult[], new: [] as RunResult[] };
+      const keys = {} as Record<'old' | 'new', string>;
+      for (const side of ['old', 'new'] as const) {
+        const sc = side === 'new' ? scNew : resolveSkill(sides.old.dir, name);
+        const key = cacheKey({ skill: name, skillHash: hashDir(sc.dir), casesHash: hashCases(sc.cases), model: sides[side].model, judge: opts.judge, runs });
+        keys[side] = key;
         const cached = opts.cache ? store.lookup(key) : [];
-        if (cached.length) { console.error(`${sc.skill}: ${model} cached (${key})`); results.push(...cached); } else toRun.push(model);
-      }
-      if (toRun.length) {
+        if (side === 'new' && key === keys.old) { results.new = results.old; console.error(`${name}: new side shares the old side results (${key})`); continue; }
+        if (cached.length) { console.error(`${name}: ${side} (${sides[side].model}) cached (${key})`); results[side] = cached; continue; }
         const workingDir = resolve(buildFixture(sc, opts.fixturesDir));
         const fresh = await runSkill(sc, {
-          models: toRun, runs, judgeModel: opts.judge, workingDir, maxConcurrency: Number(opts.concurrency),
-          onProgress: (c, t) => console.error(`${sc.skill}: ${c}/${t}`),
+          models: [sides[side].model], runs, judgeModel: opts.judge, workingDir, maxConcurrency: Number(opts.concurrency),
+          onProgress: (c, t) => console.error(`${name} ${side}: ${c}/${t}`),
         }, claudeVersion);
-        store.saveRaw(sc.skill, fresh.raw);
-        for (const model of toRun) store.appendResults(keys.get(model)!, fresh.results.filter((r) => r.model === model));
-        results.push(...fresh.results);
+        store.saveRaw(name, fresh.raw);
+        store.appendResults(key, fresh.results);
+        results[side] = fresh.results;
       }
-      const tagsOf = (c: string) => sc.cases.find((x) => x.name === c)?.tags ?? [];
-      const sr: SkillReport = { ...compareSkill(sc.skill, results, opts.old, opts.new, tagsOf), flags: [], cases_source: sc.source, cases_hash: base.casesHash };
-      sr.flags = skillFlags(sr, sc.source);
-      const meta = { skill: sc.skill, agent: 'claude', old_model: opts.old, new_model: opts.new };
+      const tagsOf = (c: string) => scNew.cases.find((x) => x.name === c)?.tags ?? [];
+      const sr: SkillReport = { ...compareSkill(name, results.old, results.new, tagsOf), flags: [], cases_source: scNew.source, cases_hash: hashCases(scNew.cases) };
+      sr.flags = skillFlags(sr, scNew.source);
+      const meta = { skill: name, agent: 'claude', old_model: opts.old, new_model: opts.new };
       for (const c of sr.cases) store.appendVerdict({ ...meta, case: c.name, ...c });
-      store.appendVerdict({ ...meta, case: null, verdict: sr.verdict, flags: sr.flags, aggregate: sr.aggregate, keys: Object.fromEntries(keys) });
-      allResults.push(...results);
+      store.appendVerdict({ ...meta, case: null, verdict: sr.verdict, flags: sr.flags, aggregate: sr.aggregate, keys });
+      all.old.push(...results.old);
+      all.new.push(...results.new);
       reports.push(sr);
     }
-    const report = buildReport(reports, allResults, { oldModel: opts.old, newModel: opts.new, startedAt, claudeVersion });
+    const report = buildReport(reports, all, { oldModel: opts.old, newModel: opts.new, startedAt, claudeVersion });
     const out = opts.out ?? join(opts.store, 'reports', 'claude', opts.new, startedAt.toISOString().replace(/[:.]/g, '-'));
     mkdirSync(out, { recursive: true });
     if (opts.format !== 'json') writeFileSync(join(out, 'report.md'), toMarkdown(report));

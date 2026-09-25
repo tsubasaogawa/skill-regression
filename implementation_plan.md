@@ -135,7 +135,7 @@
 | 5 | Comparator (Beta 比較、判定表) | 単体テスト: 5/5 vs 2/5 で REGRESSED (P_reg 0.97)、5/5 vs 5/5 で UNCHANGED、5/5 vs 3/5 で INCONCLUSIVE (P_reg 0.91、設計ノートの AMBIGUOUS 帯。追加反復ループは未実装のため INCONCLUSIVE に落とす)。5/5 vs 4/5 は P_reg 0.77 で UNCHANGED |
 | 6 | Store と旧モデルキャッシュ | 同じ鍵で 2 回目は旧モデルを実行しない |
 | 7 | Reporter (Markdown / JSON / 終了コード) | 設計ノートの JSON スキーマどおりに出力 |
-| 8 | MVP 受け入れ | 同一モデル同士の比較が UNCHANGED になる。SKILL.md を意図的に壊した比較が REGRESSED になる |
+| 8 | MVP 受け入れ | 同一モデル同士の比較が UNCHANGED になる。SKILL.md を意図的に壊した比較が REGRESSED になる。`scripts/acceptance.sh` で確認 (合成 Skill `magic-word`、sonnet 3 run: 3/3 vs 3/3 → UNCHANGED / exit 0、3/3 vs 0/3 → P_reg 0.99 REGRESSED / exit 1)。壊した比較は `--old-skills-dir` で旧側だけ壊す前の Skill を使う |
 
 順 1 から 3 と 5 は API を呼ばずに進められる。順 4 以降の実機確認は Claude Code のログイン (プラン使用量) を消費する。
 
@@ -193,6 +193,8 @@ assertion 対応:
 - haiku、sonnet とも markdown-backlog-converter の eval-1 で Skill ツールを呼ばず直接変換した (`skillCalls: []`)。`skill-used` assertion と `triggered` は正しく false を返しており、判定機構は動いている。発火率そのものは順 8 の受け入れで評価する
 
 ## 7. 未解決 / 次に確認すること
+
+- 合成 Skill `magic-word` では sonnet が 3/3 で Skill ツールを呼んだ (`triggered: true`)。markdown-backlog-converter で呼ばれなかったのは、依頼が Skill 無しでも遂行できる内容だったためと考えられる
 
 - Codex 側の Skill 読み取りが `.agents/skills/` で確実に起きるか (フェーズ 2)
 - 同一テストの反復行の順序が provider 内で安定しているか (run_idx の一貫性は判定には影響しないが、raw との対応付けに使う)

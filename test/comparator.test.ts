@@ -20,10 +20,9 @@ it.each([
 });
 
 it('compareSkill: worst case wins, error runs excluded', () => {
-  const sv = compareSkill('s', [
-    ...runs('old', 'a', k(5, 5)), ...runs('new', 'a', k(5, 5)),
-    ...runs('old', 'b', k(5, 5)), ...runs('new', 'b', k(2, 5)), ...runs('new', 'b', k(1, 1), true),
-  ], 'old', 'new');
+  const sv = compareSkill('s',
+    [...runs('old', 'a', k(5, 5)), ...runs('old', 'b', k(5, 5))],
+    [...runs('new', 'a', k(5, 5)), ...runs('new', 'b', k(2, 5)), ...runs('new', 'b', k(1, 1), true)]);
   expect(sv.verdict).toBe('REGRESSED');
   expect(sv.cases.map((c) => c.verdict)).toEqual(['UNCHANGED', 'REGRESSED']);
   expect(sv.cases[1].new).toEqual({ passed: 2, runs: 5, errors: 1 });
