@@ -1,5 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { parse } from 'yaml';
+import { fromEvalsJson, type EvalsJson } from './fromEvalsJson.js';
+import type { Case } from './types.js';
 
 export type CaseSource = 'cases.yaml' | 'evals.json' | 'generated';
 
@@ -7,7 +10,7 @@ export interface SkillCases {
   skill: string;
   dir: string;
   source: CaseSource;
-  count: number;
+  cases: Case[];
 }
 
 export function listSkills(skillsDir: string): string[] {
@@ -22,13 +25,12 @@ export function resolveCases(skillsDir: string, skill: string): SkillCases {
   const yamlPath = join(dir, 'evals', 'cases.yaml');
   const jsonPath = join(dir, 'evals', 'evals.json');
   if (existsSync(yamlPath)) {
-    // ponytail: count top-level "- " entries; replace with yaml parse in order 2
-    const count = readFileSync(yamlPath, 'utf8').split('\n').filter((l) => l.startsWith('- ')).length;
-    return { skill, dir, source: 'cases.yaml', count };
+    return { skill, dir, source: 'cases.yaml', cases: parse(readFileSync(yamlPath, 'utf8')) as Case[] };
   }
   if (existsSync(jsonPath)) {
-    const json = JSON.parse(readFileSync(jsonPath, 'utf8')) as { evals?: unknown[] };
-    return { skill, dir, source: 'evals.json', count: json.evals?.length ?? 0 };
+    const json = JSON.parse(readFileSync(jsonPath, 'utf8')) as EvalsJson;
+    return { skill, dir, source: 'evals.json', cases: fromEvalsJson(json) };
   }
-  return { skill, dir, source: 'generated', count: 0 };
+  // ponytail: generated cases arrive in a later phase
+  return { skill, dir, source: 'generated', cases: [] };
 }
