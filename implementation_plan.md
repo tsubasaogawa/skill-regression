@@ -182,10 +182,18 @@ assertion 対応:
 - `error` は `error` または `failureReason !== 0`。エラー run は判定から除外し `errors` に計上
 - `cost_usd` は `cost`、`claude_version` は別途取得した値
 
-## 6. 未解決 / 次に確認すること
+## 6. 実機確認で判明した事項 (順 4)
 
-- `evaluate()` はローカル DB (drizzle / sqlite) に書き込む。`writeLatestResults: false` で抑制できるか、あるいは `PROMPTFOO_DISABLE_*` 系の環境変数が要るかは順 4 で確認する
-- `permission_mode` の既定値。Skill が Write を使うケース (markdown-backlog-converter) では `acceptEdits` が要る。fixture 内で完結させるため `working_dir` を fixture にし、`/tmp` 出力は fixture 内パスに書き換えるか検討する
-- `defaultTest.options.provider` の judge 指定形式 (文字列 `anthropic:messages:claude-haiku-4-5` で通るか)
+- `evaluate()` は `writeLatestResults` が既定 false のため DB に書き込まない。追加の環境変数は不要
+- `anthropic:claude-agent-sdk` provider は `ANTHROPIC_API_KEY` が無いと例外を投げる。Claude Code のログインで動かすには `apiKeyRequired: false` を config に入れる。また `@anthropic-ai/claude-agent-sdk` を skilldrift 側の依存に入れる必要がある (promptfoo は peer 扱い)
+- `permission_mode: 'acceptEdits'` では `/tmp` への Write が拒否される (作業ディレクトリ外)。`bypassPermissions` + `allow_dangerously_skip_permissions: true` + `allow_all_tools: true` にした。fixture は使い捨てなので許容
+- judge は `anthropic:messages:*` だと API キーが要るため、MVP では agent-sdk provider (ツール無し、`working_dir` は tmpdir) を judge にしている。API キーが用意できたら切り替える
+- fixture の Skill は `setting_sources: ['project']` で読み込まれる (stream-json の init メッセージで確認)。fixture を git リポジトリにする必要は無い。trust ダイアログも `-p` では不要
+- `EvaluateResult.error` には assertion 失敗の理由も入るため、`failureReason === ERROR` のときだけ `error` 扱いにする
+- haiku、sonnet とも markdown-backlog-converter の eval-1 で Skill ツールを呼ばず直接変換した (`skillCalls: []`)。`skill-used` assertion と `triggered` は正しく false を返しており、判定機構は動いている。発火率そのものは順 8 の受け入れで評価する
+
+## 7. 未解決 / 次に確認すること
+
 - Codex 側の Skill 読み取りが `.agents/skills/` で確実に起きるか (フェーズ 2)
 - 同一テストの反復行の順序が provider 内で安定しているか (run_idx の一貫性は判定には影響しないが、raw との対応付けに使う)
+- `/tmp` 出力を fixture 内パスに書き換えるか。現状は `bypassPermissions` で `/tmp` にそのまま書く
