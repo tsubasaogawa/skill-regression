@@ -1,0 +1,27 @@
+{
+  "name": "skilldrift",
+  "version": "0.1.0",
+  "description": "Detect skill regressions when a new model arrives",
+  "type": "module",
+  "license": "MIT",
+  "bin": { "skilldrift": "dist/cli.js" },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "commander": "^14.0.0",
+    "promptfoo": "^0.123.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "tsx": "^4.23.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  },
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=22.22.0"
+  }
+}
