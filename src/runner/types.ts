@@ -9,6 +9,8 @@ export interface RunResult {
   triggered: boolean;
   judge_dependent: boolean;
   error?: string;
+  failed_assertions?: string[];
+  excerpt?: string;
   cost_usd?: number;
   latency_ms: number;
   claude_version?: string;

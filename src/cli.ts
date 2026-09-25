@@ -9,6 +9,8 @@ import { runSkill } from './runner/promptfoo.js';
 import { compareSkill } from './comparator/verdict.js';
 import { hashCases, hashDir } from './cases/hash.js';
 import { cacheKey, Store } from './store/store.js';
+import { buildReport, exitCode, skillFlags, toMarkdown, type SkillReport } from './reporter/report.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { cliVersion } from './runner/version.js';
 import type { RunResult } from './runner/types.js';
 import { resolve } from 'node:path';
@@ -30,8 +32,10 @@ program
   .option('--concurrency <n>', 'max concurrent runs', '2')
   .option('--store <dir>', 'store directory', '.skilldrift')
   .option('--no-cache', 'rerun even if results for the same key exist')
+  .option('--out <dir>', 'report directory (default: <store>/reports/claude/<new-model>/<timestamp>)')
+  .option('--format <fmt>', 'md | json | both', 'both')
   .option('--dry-run', 'list skills and resolved cases without running')
-  .action(async (opts: { skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; runs: string; judge: string; concurrency: string; store: string; cache: boolean; dryRun?: boolean }) => {
+  .action(async (opts: { skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; runs: string; judge: string; concurrency: string; store: string; cache: boolean; out?: string; format: string; dryRun?: boolean }) => {
     const skills = listSkills(opts.skillsDir)
       .filter((s) => !opts.skill || s === opts.skill)
       .map((s) => resolveCases(opts.skillsDir, s))
@@ -45,6 +49,9 @@ program
     const claudeVersion = cliVersion('claude');
     const store = new Store(opts.store);
     const runs = Number(opts.runs);
+    const startedAt = new Date();
+    const allResults: RunResult[] = [];
+    const reports: SkillReport[] = [];
     for (const sc of skills.filter((s) => s.cases.length > 0)) {
       const base = { skill: sc.skill, skillHash: hashDir(sc.dir), casesHash: hashCases(sc.cases), judge: opts.judge, runs };
       const keys = new Map([...new Set([opts.old, opts.new])].map((m) => [m, cacheKey({ ...base, model: m })]));
@@ -64,11 +71,23 @@ program
         for (const model of toRun) store.appendResults(keys.get(model)!, fresh.results.filter((r) => r.model === model));
         results.push(...fresh.results);
       }
-      for (const r of results) console.log(JSON.stringify(r));
-      const verdict = { ...compareSkill(sc.skill, results, opts.old, opts.new), old_model: opts.old, new_model: opts.new, keys: Object.fromEntries(keys) };
-      store.appendVerdict(verdict);
-      console.log(JSON.stringify(verdict));
+      const tagsOf = (c: string) => sc.cases.find((x) => x.name === c)?.tags ?? [];
+      const sr: SkillReport = { ...compareSkill(sc.skill, results, opts.old, opts.new, tagsOf), flags: [], cases_source: sc.source, cases_hash: base.casesHash };
+      sr.flags = skillFlags(sr, sc.source);
+      const meta = { skill: sc.skill, agent: 'claude', old_model: opts.old, new_model: opts.new };
+      for (const c of sr.cases) store.appendVerdict({ ...meta, case: c.name, ...c });
+      store.appendVerdict({ ...meta, case: null, verdict: sr.verdict, flags: sr.flags, aggregate: sr.aggregate, keys: Object.fromEntries(keys) });
+      allResults.push(...results);
+      reports.push(sr);
     }
+    const report = buildReport(reports, allResults, { oldModel: opts.old, newModel: opts.new, startedAt, claudeVersion });
+    const out = opts.out ?? join(opts.store, 'reports', 'claude', opts.new, startedAt.toISOString().replace(/[:.]/g, '-'));
+    mkdirSync(out, { recursive: true });
+    if (opts.format !== 'json') writeFileSync(join(out, 'report.md'), toMarkdown(report));
+    if (opts.format !== 'md') writeFileSync(join(out, 'report.json'), JSON.stringify(report, null, 2));
+    if (opts.format === 'json') console.log(JSON.stringify(report, null, 2));
+    else { console.log(toMarkdown(report)); console.error(`report: ${out}`); }
+    process.exitCode = exitCode(reports);
   });
 
 program

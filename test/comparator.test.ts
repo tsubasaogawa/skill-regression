@@ -14,7 +14,7 @@ it('pRegressed is symmetric and monotone', () => {
 });
 
 it.each([
-  [5, 2, 'REGRESSED'], [5, 5, 'UNCHANGED'], [5, 4, 'AMBIGUOUS'], [2, 5, 'IMPROVED'],
+  [5, 2, 'REGRESSED'], [5, 5, 'UNCHANGED'], [5, 4, 'UNCHANGED'], [5, 3, 'INCONCLUSIVE'], [2, 5, 'IMPROVED'],
 ])('5/5 vs %i/5 → %s', (o, n, v) => {
   expect(toVerdict(pRegressed(o, 5, n, 5))).toBe(v);
 });
@@ -26,5 +26,6 @@ it('compareSkill: worst case wins, error runs excluded', () => {
   ], 'old', 'new');
   expect(sv.verdict).toBe('REGRESSED');
   expect(sv.cases.map((c) => c.verdict)).toEqual(['UNCHANGED', 'REGRESSED']);
-  expect(sv.cases[1].new).toEqual({ pass: 2, n: 5, errors: 1 });
+  expect(sv.cases[1].new).toEqual({ passed: 2, runs: 5, errors: 1 });
+  expect(sv.aggregate).toEqual({ old_pass_rate: 1, new_pass_rate: 0.7 });
 });

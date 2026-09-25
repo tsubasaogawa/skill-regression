@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { SkillVerdict } from '../comparator/verdict.js';
 import type { RunResult } from '../runner/types.js';
 
 export interface KeyParts { skill: string; skillHash: string; casesHash: string; model: string; judge: string; runs: number }
@@ -28,7 +27,7 @@ export class Store {
     appendFileSync(join(this.dir, 'results.jsonl'), results.map((r) => JSON.stringify({ ...r, key, ts })).join('\n') + '\n');
   }
 
-  appendVerdict(v: SkillVerdict & Record<string, unknown>): void {
+  appendVerdict(v: Record<string, unknown>): void {
     appendFileSync(join(this.dir, 'verdicts.jsonl'), JSON.stringify({ ...v, ts: new Date().toISOString() }) + '\n');
   }
 

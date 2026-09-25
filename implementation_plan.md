@@ -132,7 +132,7 @@
 | 2 | 中立形式の型と `evals.json` 変換 | 3 Skill の `evals.json` を読んで中立形式 YAML を出力できる。単体テストあり |
 | 3 | fixture 生成 | `fixtures/<skill>/.claude/skills/<skill>/SKILL.md`、`.agents/skills/<skill>/SKILL.md`、`evals/files/*`、`assets/file_exists.js` が生成される |
 | 4 | Runner (promptfoo 変換 + `evaluate()` + 正規化) | 1 Skill 1 ケース 1 run を実機で回し `RunResult` が得られる。`skillCalls` から `triggered` を取れる |
-| 5 | Comparator (Beta 比較、判定表) | 単体テスト: 5/5 vs 2/5 で REGRESSED、5/5 vs 5/5 で UNCHANGED、5/5 vs 4/5 で AMBIGUOUS |
+| 5 | Comparator (Beta 比較、判定表) | 単体テスト: 5/5 vs 2/5 で REGRESSED (P_reg 0.97)、5/5 vs 5/5 で UNCHANGED、5/5 vs 3/5 で INCONCLUSIVE (P_reg 0.91、設計ノートの AMBIGUOUS 帯。追加反復ループは未実装のため INCONCLUSIVE に落とす)。5/5 vs 4/5 は P_reg 0.77 で UNCHANGED |
 | 6 | Store と旧モデルキャッシュ | 同じ鍵で 2 回目は旧モデルを実行しない |
 | 7 | Reporter (Markdown / JSON / 終了コード) | 設計ノートの JSON スキーマどおりに出力 |
 | 8 | MVP 受け入れ | 同一モデル同士の比較が UNCHANGED になる。SKILL.md を意図的に壊した比較が REGRESSED になる |

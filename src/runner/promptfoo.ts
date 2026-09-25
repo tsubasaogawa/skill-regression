@@ -57,6 +57,7 @@ export function normalize(results: EvaluateResult[], skill: string, claudeVersio
       triggered: calls.some((c) => c.name === skill && !c.is_error),
       judge_dependent: components.some((c) => c.assertion?.type === 'llm-rubric'),
       ...(error ? { error } : {}),
+      ...(r.success ? {} : { failed_assertions: components.filter((c) => !c.pass).map((c) => c.assertion?.type ?? 'unknown'), excerpt: String(r.response?.output ?? '').slice(0, 300) }),
       ...(r.cost != null ? { cost_usd: r.cost } : {}),
       latency_ms: r.latencyMs,
       ...(claudeVersion ? { claude_version: claudeVersion } : {}),
