@@ -7,8 +7,10 @@ import { listSkills, resolveCases } from './cases/load.js';
 import { buildFixture } from './planner/fixture.js';
 import { runSkill } from './runner/promptfoo.js';
 import { compareSkill } from './comparator/verdict.js';
+import { hashCases, hashDir } from './cases/hash.js';
+import { cacheKey, Store } from './store/store.js';
 import { cliVersion } from './runner/version.js';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import type { RunResult } from './runner/types.js';
 import { resolve } from 'node:path';
 
 const DEFAULT_SKILLS_DIR = join(homedir(), '.claude', 'skills');
@@ -26,8 +28,10 @@ program
   .option('--runs <n>', 'runs per case per model', '1')
   .option('--judge <model>', 'judge model for llm_rubric', 'claude-haiku-4-5-20251001')
   .option('--concurrency <n>', 'max concurrent runs', '2')
+  .option('--store <dir>', 'store directory', '.skilldrift')
+  .option('--no-cache', 'rerun even if results for the same key exist')
   .option('--dry-run', 'list skills and resolved cases without running')
-  .action(async (opts: { skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; runs: string; judge: string; concurrency: string; dryRun?: boolean }) => {
+  .action(async (opts: { skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; runs: string; judge: string; concurrency: string; store: string; cache: boolean; dryRun?: boolean }) => {
     const skills = listSkills(opts.skillsDir)
       .filter((s) => !opts.skill || s === opts.skill)
       .map((s) => resolveCases(opts.skillsDir, s))
@@ -39,17 +43,31 @@ program
     }
     if (!opts.old || !opts.new) return program.error('--old and --new are required');
     const claudeVersion = cliVersion('claude');
-    const models = opts.old === opts.new ? [opts.old] : [opts.old, opts.new];
+    const store = new Store(opts.store);
+    const runs = Number(opts.runs);
     for (const sc of skills.filter((s) => s.cases.length > 0)) {
-      const workingDir = resolve(buildFixture(sc, opts.fixturesDir));
-      const { results, raw } = await runSkill(sc, {
-        models, runs: Number(opts.runs), judgeModel: opts.judge, workingDir, maxConcurrency: Number(opts.concurrency),
-        onProgress: (c, t) => console.error(`${sc.skill}: ${c}/${t}`),
-      }, claudeVersion);
-      mkdirSync('raw', { recursive: true });
-      writeFileSync(`raw/${sc.skill}-${Date.now()}.json`, JSON.stringify(raw, null, 2));
+      const base = { skill: sc.skill, skillHash: hashDir(sc.dir), casesHash: hashCases(sc.cases), judge: opts.judge, runs };
+      const keys = new Map([...new Set([opts.old, opts.new])].map((m) => [m, cacheKey({ ...base, model: m })]));
+      const results: RunResult[] = [];
+      const toRun: string[] = [];
+      for (const [model, key] of keys) {
+        const cached = opts.cache ? store.lookup(key) : [];
+        if (cached.length) { console.error(`${sc.skill}: ${model} cached (${key})`); results.push(...cached); } else toRun.push(model);
+      }
+      if (toRun.length) {
+        const workingDir = resolve(buildFixture(sc, opts.fixturesDir));
+        const fresh = await runSkill(sc, {
+          models: toRun, runs, judgeModel: opts.judge, workingDir, maxConcurrency: Number(opts.concurrency),
+          onProgress: (c, t) => console.error(`${sc.skill}: ${c}/${t}`),
+        }, claudeVersion);
+        store.saveRaw(sc.skill, fresh.raw);
+        for (const model of toRun) store.appendResults(keys.get(model)!, fresh.results.filter((r) => r.model === model));
+        results.push(...fresh.results);
+      }
       for (const r of results) console.log(JSON.stringify(r));
-      console.log(JSON.stringify(compareSkill(sc.skill, results, opts.old, opts.new)));
+      const verdict = { ...compareSkill(sc.skill, results, opts.old, opts.new), old_model: opts.old, new_model: opts.new, keys: Object.fromEntries(keys) };
+      store.appendVerdict(verdict);
+      console.log(JSON.stringify(verdict));
     }
   });
 
