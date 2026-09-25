@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { stringify } from 'yaml';
 import { listSkills, resolveCases } from './cases/load.js';
+import { buildFixture } from './planner/fixture.js';
 
 const DEFAULT_SKILLS_DIR = join(homedir(), '.claude', 'skills');
 const program = new Command().name('skilldrift').version('0.1.0');
@@ -33,6 +34,16 @@ program
   .action((action: string, skill: string, opts: { skillsDir: string }) => {
     if (action !== 'export') program.error(`unknown action: ${action}`);
     process.stdout.write(stringify(resolveCases(opts.skillsDir, skill).cases));
+  });
+
+program
+  .command('fixture')
+  .argument('<skill>', 'skill name')
+  .description('Build fixtures/<skill>/ working directory')
+  .option('--skills-dir <dir>', 'skills directory', DEFAULT_SKILLS_DIR)
+  .option('--fixtures-dir <dir>', 'fixtures root', 'fixtures')
+  .action((skill: string, opts: { skillsDir: string; fixturesDir: string }) => {
+    console.log(buildFixture(resolveCases(opts.skillsDir, skill), opts.fixturesDir));
   });
 
 program.parse();
