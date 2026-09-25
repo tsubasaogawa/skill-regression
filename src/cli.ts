@@ -6,6 +6,7 @@ import { stringify } from 'yaml';
 import { listSkills, resolveCases } from './cases/load.js';
 import { buildFixture } from './planner/fixture.js';
 import { runSkill } from './runner/promptfoo.js';
+import { compareSkill } from './comparator/verdict.js';
 import { cliVersion } from './runner/version.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -48,6 +49,7 @@ program
       mkdirSync('raw', { recursive: true });
       writeFileSync(`raw/${sc.skill}-${Date.now()}.json`, JSON.stringify(raw, null, 2));
       for (const r of results) console.log(JSON.stringify(r));
+      console.log(JSON.stringify(compareSkill(sc.skill, results, opts.old, opts.new)));
     }
   });
 
