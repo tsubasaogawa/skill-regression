@@ -195,7 +195,33 @@ assertion 対応:
 ## 7. 未解決 / 次に確認すること
 
 - 合成 Skill `magic-word` では sonnet が 3/3 で Skill ツールを呼んだ (`triggered: true`)。markdown-backlog-converter で呼ばれなかったのは、依頼が Skill 無しでも遂行できる内容だったためと考えられる
-
 - Codex 側の Skill 読み取りが `.agents/skills/` で確実に起きるか (フェーズ 2)
 - 同一テストの反復行の順序が provider 内で安定しているか (run_idx の一貫性は判定には影響しないが、raw との対応付けに使う)
 - `/tmp` 出力を fixture 内パスに書き換えるか。現状は `bypassPermissions` で `/tmp` にそのまま書く
+
+## 8. 残タスク (フェーズ 1 MVP 完了後、2026-09-30 時点)
+
+順 1〜8 は完了。以下は実装中に先送りしたもの。上から優先度順。
+
+| # | 内容 | 現状 | 備考 |
+| --- | --- | --- | --- |
+| 1 | AMBIGUOUS 帯の追加反復ループ | P_reg 0.80〜0.95 を直接 INCONCLUSIVE にしている (`comparator/verdict.ts` の `ponytail:` コメント) | 設計: 両モデルに 5 回ずつ追加して再計算、`runs_max` で INCONCLUSIVE。`--runs-max` の追加が必要 |
+| 2 | `suite.yaml` と引数解決 (CLI → suite → 既定 → 対話) | CLI 引数のみ。`config/suite.ts`、`defaults.ts` は未作成 | `baseline_model`、`skills`、`runs`、`aggregate_drop_pt` の置き場。`zod` は未導入 (必要になった時点で追加) |
+| 3 | judge を `anthropic:messages:*` に切り替え | agent-sdk provider (ツール無し) を judge にしている | API キーの用意が前提。judge コストの分離 (`cost_usd.judge`) もこのとき |
+| 4 | 発火 precision / recall と `trigger` セクション | 未実装。`trigger` / `no-trigger` タグのケースが 0 件 | ケース生成 (generated) が入った時点で。Skill 判定で最優先に扱う設計 |
+| 5 | LLM によるケース生成 (`generated`) | `resolveCases` は `generated` を空で返す | `<store>/generated/<skill>/<skill-hash>.yaml` に保存して再利用。`generated-cases` フラグは Reporter 側に実装済み |
+| 6 | DEGRADED 判定 | 未実装 | `aggregate_drop_pt` (suite.yaml) が要る。`aggregate` の合格率は Report に出力済み |
+| 7 | `skilldrift trend` | 未実装 | `verdicts.jsonl` (ケース行と `case: null` の Skill 行) をモデル順に並べるだけ |
+| 8 | `skilldrift init` | 未実装 | `suite.yaml` の雛形生成。2 の後 |
+| 9 | `--max-cost-usd`、`--non-interactive` (exit 3)、`--webhook`、`--agent` | 未実装 | `--agent codex` はフェーズ 2 |
+| 10 | `/tmp` 出力の fixture 内パスへの書き換え | `bypassPermissions` で `/tmp` にそのまま書く | 並列実行時に Skill 同士が `/tmp` で衝突しうる |
+| 11 | `low-power` フラグ | 未実装 | runs が少なく REGRESSED を検出しきれない場合の警告。閾値は設計ノートに無い |
+| 12 | README.md、LICENSE (MIT) | 未作成 | |
+| 13 | `raw/` ディレクトリの削除 | 順 4 の残骸。`.skilldrift/raw/` に移行済み | 手動で `rm -rf raw/` |
+
+設計との差分で意図的に残しているもの:
+
+- `reporter/` は `markdown.ts` / `json.ts` / `exitCode.ts` に分けず `report.ts` 1 ファイル
+- `planner/plan.ts` (実行計画とコスト見積り) は作らず、`--dry-run` は Skill とケース数の表示のみ
+- `claude_version` はキャッシュ鍵に含めない (Claude Code 更新のたびに無効化されるため)。結果行には記録している
+- Store の既定は `~/.local/skilldrift` ではなく `./.skilldrift`
