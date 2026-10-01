@@ -5,7 +5,7 @@ import type { CaseComparison } from '../src/comparator/verdict.js';
 const c = (verdict: CaseComparison['verdict'], judge = false, errors = 0): CaseComparison =>
   ({ name: 'c', tags: [], verdict, needsMoreRuns: false, judge_dependent: judge, old: { passed: 5, runs: 5, errors: 0 }, new: { passed: 2, runs: 5, errors }, p_reg: 0.97, evidence: [{ run_idx: 0, failed_assertions: ['skill-used'], excerpt: 'out' }] });
 const s = (cases: CaseComparison[], source: 'evals.json' | 'generated' = 'evals.json'): SkillReport => {
-  const base = { name: 's', verdict: cases[0].verdict, aggregate: { old_pass_rate: 1, new_pass_rate: 0.4 }, cases, flags: [] as SkillReport['flags'], cases_source: source, cases_hash: 'h' };
+  const base = { name: 's', verdict: cases[0].verdict, aggregate: { old_pass_rate: 1, new_pass_rate: 0.4 }, trigger: null, cases, flags: [] as SkillReport['flags'], cases_source: source, cases_hash: 'h' };
   return { ...base, flags: skillFlags(base, source) };
 };
 
@@ -28,4 +28,21 @@ it('flags and markdown', () => {
   expect(md).toContain('| s | REGRESSED | 100% | 40% | generated-cases, judge-dependent, partial |');
   expect(md).toContain('| c | REGRESSED | 5/5 | 2/5 | 0.97 | yes |');
   expect(md).toContain('failed skill-used');
+});
+
+it('sets exit code and renders trigger regressions', () => {
+  const sr = s([c('UNCHANGED')]);
+  sr.trigger = {
+    old: { precision: 1, recall: 1, true_positives: 5, false_positives: 0, false_negatives: 0, true_negatives: 5, runs: 10, errors: 0 },
+    new: { precision: 0.5, recall: 0.4, true_positives: 2, false_positives: 2, false_negatives: 3, true_negatives: 3, runs: 10, errors: 0 },
+    verdict: 'REGRESSED',
+    p_reg: 0.97,
+    cases: [{ name: 'fires', expected: true, verdict: 'REGRESSED', needsMoreRuns: false, old: { passed: 5, runs: 5, errors: 0 }, new: { passed: 2, runs: 5, errors: 0 }, p_reg: 0.97 }],
+  };
+  expect(exitCode([sr])).toBe(1);
+  const r = buildReport([sr], { old: [], new: [] }, { oldModel: 'a', newModel: 'b', startedAt: new Date() });
+  const md = toMarkdown(r);
+  expect(md).toContain('## Trigger precision / recall');
+  expect(md).toContain('| s | REGRESSED | 100% | 50% | 100% | 40% | 0.97 |');
+  expect(md).toContain('| s | fires | yes | REGRESSED | 5/5 | 2/5 | 0.97 |');
 });

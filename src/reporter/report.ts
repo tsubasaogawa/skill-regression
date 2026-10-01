@@ -26,8 +26,10 @@ export function skillFlags(sc: SkillComparison, source: CaseSource): Flag[] {
 /** 0 = no regression, 1 = regression on a deterministic case, 2 = inconclusive or partial. Judge-dependent regressions are report-only. */
 export function exitCode(skills: SkillReport[]): number {
   const cases = skills.flatMap((s) => s.cases);
-  if (cases.some((c) => c.verdict === 'REGRESSED' && !c.judge_dependent)) return 1;
-  if (cases.some((c) => c.verdict === 'INCONCLUSIVE') || skills.some((s) => s.flags.includes('partial'))) return 2;
+  if (cases.some((c) => c.verdict === 'REGRESSED' && !c.judge_dependent)
+    || skills.some((s) => s.trigger?.verdict === 'REGRESSED')) return 1;
+  if (cases.some((c) => c.verdict === 'INCONCLUSIVE')
+    || skills.some((s) => s.trigger?.verdict === 'INCONCLUSIVE' || s.flags.includes('partial'))) return 2;
   return 0;
 }
 
@@ -45,6 +47,7 @@ export function buildReport(skills: SkillReport[], results: { old: RunResult[]; 
 }
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
+const maybePct = (x: number | null) => x === null ? 'n/a' : pct(x);
 
 export function toMarkdown(r: Report): string {
   const judgeCost = r.cost_usd.judge == null ? 'unavailable' : `$${r.cost_usd.judge.toFixed(2)}`;
@@ -54,6 +57,17 @@ export function toMarkdown(r: Report): string {
     '| Skill | Verdict | Old | New | Flags |', '| --- | --- | --- | --- | --- |',
     ...r.skills.map((s) => `| ${s.name} | ${s.verdict} | ${pct(s.aggregate.old_pass_rate)} | ${pct(s.aggregate.new_pass_rate)} | ${s.flags.join(', ')} |`),
   ];
+  const triggerSkills = r.skills.filter((s) => s.trigger);
+  if (triggerSkills.length) {
+    lines.push('', '## Trigger precision / recall', '',
+      '| Skill | Verdict | Old precision | New precision | Old recall | New recall | P_reg |',
+      '| --- | --- | --- | --- | --- | --- | --- |',
+      ...triggerSkills.map((s) => `| ${s.name} | ${s.trigger!.verdict} | ${maybePct(s.trigger!.old.precision)} | ${maybePct(s.trigger!.new.precision)} | ${maybePct(s.trigger!.old.recall)} | ${maybePct(s.trigger!.new.recall)} | ${s.trigger!.p_reg.toFixed(2)} |`),
+      '',
+      '| Skill | Case | Expected trigger | Verdict | Old correct/runs | New correct/runs | P_reg |',
+      '| --- | --- | --- | --- | --- | --- | --- |',
+      ...triggerSkills.flatMap((s) => s.trigger!.cases.map((c) => `| ${s.name} | ${c.name} | ${c.expected ? 'yes' : 'no'} | ${c.verdict} | ${c.old.passed}/${c.old.runs} | ${c.new.passed}/${c.new.runs} | ${c.p_reg.toFixed(2)} |`)));
+  }
   for (const s of r.skills) {
     const bad = s.cases.filter((c) => c.verdict !== 'UNCHANGED');
     if (!bad.length) continue;

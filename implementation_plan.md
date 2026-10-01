@@ -208,7 +208,7 @@ assertion 対応:
 | 1 | AMBIGUOUS 帯の追加反復ループ | 実装・CLI 統合テスト済み | `--runs-max`、ケース単位の追加実行、同一キャッシュキーへの追記を実装済み。§9 の Runner モック統合テストで確認 |
 | 2 | `suite.yaml` と引数解決 (CLI → suite → 既定 → 対話) | 実装・単体/CLI 統合テスト済み | `baseline_model`、`skills`、`runs`、`aggregate_drop_pt` を検証し、CLI 上書き・既定値・モデル入力に対応。`aggregate_drop_pt` の判定への適用は #6 |
 | 3 | judge を `anthropic:messages:*` に切り替え | Messages API に移行。`cost_usd.judge` は promptfoo が grader のドルコストを公開しないため `null` | `llm_rubric` 使用時は `ANTHROPIC_API_KEY` が必要。judge provider の変更で旧 cache を無効化 |
-| 4 | 発火 precision / recall と `trigger` セクション | 未実装。`trigger` / `no-trigger` タグのケースが 0 件 | ケース生成 (generated) が入った時点で。Skill 判定で最優先に扱う設計 |
+| 4 | 発火 precision / recall と `trigger` セクション | 実装・単体テスト済み | `trigger` / `no-trigger` タグから旧/新モデルの precision / recall を集計し、発火正解率の回帰を Skill 判定に反映。曖昧な発火ケースは追加実行対象。レポートと verdicts.jsonl に trigger セクションを出力 |
 | 5 | LLM によるケース生成 (`generated`) | `resolveCases` は `generated` を空で返す | `<store>/generated/<skill>/<skill-hash>.yaml` に保存して再利用。`generated-cases` フラグは Reporter 側に実装済み |
 | 6 | DEGRADED 判定 | 未実装 | `aggregate_drop_pt` (suite.yaml) が要る。`aggregate` の合格率は Report に出力済み |
 | 7 | `skilldrift trend` | 未実装 | `verdicts.jsonl` (ケース行と `case: null` の Skill 行) をモデル順に並べるだけ |
@@ -242,3 +242,9 @@ Runner をモックした CLI 統合テストを追加し、実モデルを呼�
 - judge provider をキャッシュキーに含め、agent-sdk judge で作成した既存結果を再利用しない。
 - `cost_usd.judge` をレポートに追加。promptfoo 0.123.1 の `EvaluateResult` は grader の `tokensUsed` は返すが judge のドルコストは返さないため、根拠のないゼロ計上を避け `null` とする。Markdown では `judge unavailable` と表示。
 - Runner の変換/API キー判定、キャッシュ分離、レポート表記をテストで確認。API キーを使う実機 judge 呼び出しは未実施。
+
+## 11. 発火 precision / recall と trigger レポート (2026-10-01)
+
+- `trigger` タグを正例、`no-trigger` タグを負例として `triggered` の TP / FP / FN / TN、precision、recall を旧/新モデル別に算出。エラー run は分母から除外し、該当する予測または正例が無い場合の precision / recall は `null`。
+- 発火期待値に基づくケース別 Beta 比較を行い、曖昧なケースを既存の追加反復ループに含める。発火回帰は assertion ベースのケース結果と独立して Skill verdict / exit code に反映する。
+- Markdown レポートと JSON / `verdicts.jsonl` に発火集計とケース別判定を出力。`trigger` と `no-trigger` の両方が付いたケースは不正として拒否する。
