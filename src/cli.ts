@@ -186,7 +186,7 @@ program
       sr.flags = skillFlags(sr, scNew.source);
       const meta = { skill: name, agent: 'claude', old_model: oldModel, new_model: newModel };
       for (const c of sr.cases) store.appendVerdict({ ...meta, case: c.name, ...c });
-      store.appendVerdict({ ...meta, case: null, verdict: sr.verdict, flags: sr.flags, aggregate: sr.aggregate, keys });
+      store.appendVerdict({ ...meta, case: null, verdict: sr.verdict, flags: sr.flags, aggregate: sr.aggregate, trigger: sr.trigger, keys });
       all.old.push(...results.old);
       all.new.push(...results.new);
       reports.push(sr);

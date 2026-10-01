@@ -57,3 +57,51 @@ it('compareSkill: worst case wins, error runs excluded', () => {
   expect(sv.cases[1].new).toEqual({ passed: 2, runs: 5, errors: 1 });
   expect(sv.aggregate).toEqual({ old_pass_rate: 1, new_pass_rate: 0.7 });
 });
+
+it('reports trigger precision and recall and prioritizes trigger regressions', () => {
+  const oldTrigger = runs('old', 'should-trigger', k(5, 5));
+  const newTrigger = runs('new', 'should-trigger', k(5, 5)).map((r, i) => ({ ...r, triggered: i < 2 }));
+  const oldNoTrigger = runs('old', 'should-not-trigger', k(5, 5)).map((r) => ({ ...r, triggered: false }));
+  const newNoTrigger = runs('new', 'should-not-trigger', k(5, 5)).map((r, i) => ({ ...r, triggered: i < 2 }));
+  const comparison = compareSkill(
+    's',
+    [...oldTrigger, ...oldNoTrigger],
+    [...newTrigger, ...newNoTrigger],
+    (name) => name === 'should-trigger' ? ['trigger'] : name === 'should-not-trigger' ? ['no-trigger'] : ['quality'],
+  );
+
+  expect(comparison.trigger?.old).toMatchObject({ precision: 1, recall: 1, true_positives: 5, true_negatives: 5 });
+  expect(comparison.trigger?.new).toMatchObject({ precision: 0.5, recall: 0.4, true_positives: 2, false_positives: 2, false_negatives: 3, true_negatives: 3 });
+  expect(comparison.trigger?.verdict).toBe('REGRESSED');
+  expect(comparison.verdict).toBe('REGRESSED');
+  expect(comparison.aggregate).toEqual({ old_pass_rate: 1, new_pass_rate: 1 });
+});
+
+it('requests more runs when trigger correctness is ambiguous and omits metrics without trigger tags', () => {
+  const old = runs('old', 'should-not-trigger', k(5, 5)).map((r) => ({ ...r, triggered: false }));
+  const newer = runs('new', 'should-not-trigger', k(5, 5)).map((r, i) => ({ ...r, triggered: i < 2 }));
+  const comparison = compareSkill('s', old, newer, () => ['no-trigger']);
+  expect(comparison.cases[0].verdict).toBe('UNCHANGED');
+  expect(comparison.cases[0].needsMoreRuns).toBe(true);
+  expect(comparison.trigger?.cases[0].verdict).toBe('INCONCLUSIVE');
+  expect(compareSkill('s', old, newer).trigger).toBeNull();
+});
+
+it('excludes error runs and reports undefined precision when there are no predicted positives', () => {
+  const results = [
+    ...runs('new', 'should-trigger', k(5, 5)).map((r) => ({ ...r, triggered: false })),
+    ...runs('new', 'should-not-trigger', k(5, 5)).map((r) => ({ ...r, triggered: false })),
+    ...runs('new', 'should-trigger', [false], true).map((r) => ({ ...r, triggered: true })),
+  ];
+  const comparison = compareSkill('s', [], results, (name) =>
+    name === 'should-trigger' ? ['trigger'] : ['no-trigger']);
+  expect(comparison.trigger?.new).toEqual({
+    precision: null, recall: 0, true_positives: 0, false_positives: 0,
+    false_negatives: 5, true_negatives: 5, runs: 10, errors: 1,
+  });
+});
+
+it('rejects cases tagged as both trigger and no-trigger', () => {
+  expect(() => compareSkill('s', runs('old', 'invalid', [true]), [], () => ['trigger', 'no-trigger']))
+    .toThrow('cannot have both trigger and no-trigger tags');
+});
