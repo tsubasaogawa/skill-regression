@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { pRegressed } from '../src/comparator/beta.js';
-import { compareSkill, toVerdict } from '../src/comparator/verdict.js';
+import { compareCase, compareSkill, toInternalVerdict, toVerdict } from '../src/comparator/verdict.js';
 import type { RunResult } from '../src/runner/types.js';
 
 const runs = (model: string, c: string, passes: boolean[], error = false): RunResult[] =>
@@ -17,6 +17,35 @@ it.each([
   [5, 2, 'REGRESSED'], [5, 5, 'UNCHANGED'], [5, 4, 'UNCHANGED'], [5, 3, 'INCONCLUSIVE'], [2, 5, 'IMPROVED'],
 ])('5/5 vs %i/5 → %s', (o, n, v) => {
   expect(toVerdict(pRegressed(o, 5, n, 5))).toBe(v);
+});
+
+it('distinguishes the internal ambiguous band', () => {
+  expect(toInternalVerdict(0.85)).toBe('AMBIGUOUS');
+  expect(toInternalVerdict(0.96)).toBe('REGRESSED');
+  expect(toInternalVerdict(0.70)).toBe('UNCHANGED');
+});
+
+it('requests more runs for an ambiguous case', () => {
+  const comparison = compareCase('a', runs('old', 'a', k(5, 5)), runs('new', 'a', k(3, 5)));
+  expect(comparison.verdict).toBe('INCONCLUSIVE');
+  expect(comparison.needsMoreRuns).toBe(true);
+});
+
+it('can resolve an ambiguous case as regressed with more runs', () => {
+  const initialOld = runs('old', 'a', k(5, 5));
+  const initialNew = runs('new', 'a', k(3, 5));
+  const resolved = compareCase('a', [...initialOld, ...runs('old', 'a', k(5, 5))], [...initialNew, ...runs('new', 'a', k(0, 5))]);
+  expect(compareCase('a', initialOld, initialNew).needsMoreRuns).toBe(true);
+  expect(resolved.verdict).toBe('REGRESSED');
+  expect(resolved.needsMoreRuns).toBe(false);
+});
+
+it('can resolve an ambiguous case as unchanged with more runs', () => {
+  const initialOld = runs('old', 'a', k(5, 5));
+  const initialNew = runs('new', 'a', k(3, 5));
+  const resolved = compareCase('a', [...initialOld, ...runs('old', 'a', k(4, 5))], [...initialNew, ...runs('new', 'a', k(5, 5))]);
+  expect(resolved.verdict).toBe('UNCHANGED');
+  expect(resolved.needsMoreRuns).toBe(false);
 });
 
 it('compareSkill: worst case wins, error runs excluded', () => {

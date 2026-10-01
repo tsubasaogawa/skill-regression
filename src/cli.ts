@@ -3,9 +3,9 @@ import { Command } from 'commander';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { stringify } from 'yaml';
-import { listSkills, resolveCases } from './cases/load.js';
+import { listSkills, resolveCases, type SkillCases } from './cases/load.js';
 import { buildFixture } from './planner/fixture.js';
-import { runSkill } from './runner/promptfoo.js';
+import { runSkill, runSkillCase } from './runner/promptfoo.js';
 import { compareSkill } from './comparator/verdict.js';
 import { hashCases, hashDir } from './cases/hash.js';
 import { cacheKey, Store } from './store/store.js';
@@ -14,9 +14,38 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { cliVersion } from './runner/version.js';
 import type { RunResult } from './runner/types.js';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const DEFAULT_SKILLS_DIR = join(homedir(), '.claude', 'skills');
-const program = new Command().name('skilldrift').version('0.1.0');
+export const program = new Command().name('skilldrift').version('0.1.0');
+type Side = 'old' | 'new';
+
+function countRuns(results: RunResult[], caseNames: string[]): number {
+  if (!caseNames.length) return 0;
+  return Math.min(...caseNames.map((name) => results.filter((r) => r.case === name).length));
+}
+
+function limitRuns(results: RunResult[], runs: number): RunResult[] {
+  const seen = new Map<string, number>();
+  return results.filter((result) => {
+    const count = seen.get(result.case) ?? 0;
+    if (count >= runs) return false;
+    seen.set(result.case, count + 1);
+    return true;
+  });
+}
+
+function reindexResults(existing: RunResult[], fresh: RunResult[]): RunResult[] {
+  const next = new Map<string, number>();
+  for (const result of existing) {
+    next.set(result.case, Math.max(next.get(result.case) ?? 0, result.run_idx + 1));
+  }
+  return fresh.map((result) => {
+    const run_idx = next.get(result.case) ?? 0;
+    next.set(result.case, run_idx + 1);
+    return { ...result, run_idx };
+  });
+}
 
 program
   .command('compare')
@@ -29,6 +58,7 @@ program
   .option('--new <model>', 'candidate model')
   .option('--old-skills-dir <dir>', 'skills directory for the baseline side (default: --skills-dir)')
   .option('--runs <n>', 'runs per case per model', '1')
+  .option('--runs-max <n>', 'maximum runs per case per model (default: --runs)')
   .option('--judge <model>', 'judge model for llm_rubric', 'claude-haiku-4-5-20251001')
   .option('--concurrency <n>', 'max concurrent runs', '2')
   .option('--store <dir>', 'store directory', '.skilldrift')
@@ -36,7 +66,7 @@ program
   .option('--out <dir>', 'report directory (default: <store>/reports/claude/<new-model>/<timestamp>)')
   .option('--format <fmt>', 'md | json | both', 'both')
   .option('--dry-run', 'list skills and resolved cases without running')
-  .action(async (opts: { skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; oldSkillsDir?: string; runs: string; judge: string; concurrency: string; store: string; cache: boolean; out?: string; format: string; dryRun?: boolean }) => {
+  .action(async (opts: { skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; oldSkillsDir?: string; runs: string; runsMax?: string; judge: string; concurrency: string; store: string; cache: boolean; out?: string; format: string; dryRun?: boolean }) => {
     const resolveSkill = (dir: string, s: string) => {
       const sc = resolveCases(dir, s);
       return { ...sc, cases: sc.cases.filter((c) => !opts.case || c.name === opts.case) };
@@ -52,6 +82,9 @@ program
     const claudeVersion = cliVersion('claude');
     const store = new Store(opts.store);
     const runs = Number(opts.runs);
+    const runsMax = opts.runsMax == null ? runs : Number(opts.runsMax);
+    if (!Number.isInteger(runs) || runs < 1) return program.error('--runs must be a positive integer');
+    if (!Number.isInteger(runsMax) || runsMax < runs) return program.error('--runs-max must be an integer greater than or equal to --runs');
     const startedAt = new Date();
     const sides = { old: { model: opts.old, dir: opts.oldSkillsDir ?? opts.skillsDir }, new: { model: opts.new, dir: opts.skillsDir } } as const;
     const all = { old: [] as RunResult[], new: [] as RunResult[] };
@@ -59,26 +92,73 @@ program
     for (const name of names) {
       const scNew = resolveSkill(sides.new.dir, name);
       if (!scNew.cases.length) continue;
+      const scOld = resolveSkill(sides.old.dir, name);
+      const scBySide: Record<Side, SkillCases> = { old: scOld, new: scNew };
+      const caseNames = [...new Set([...scOld.cases, ...scNew.cases].map((c) => c.name))];
       const results = { old: [] as RunResult[], new: [] as RunResult[] };
-      const keys = {} as Record<'old' | 'new', string>;
+      const keys = {} as Record<Side, string>;
+      const runFresh = async (side: Side, sc: SkillCases, repeat: number, caseName?: string) => {
+        const workingDir = resolve(buildFixture(sc, opts.fixturesDir));
+        const label = caseName ? `${name} ${side} ${caseName}` : `${name} ${side}`;
+        const fresh = caseName
+          ? await runSkillCase(sc, caseName, {
+            models: [sides[side].model], runs: repeat, judgeModel: opts.judge, workingDir, maxConcurrency: Number(opts.concurrency),
+            onProgress: (c, t) => console.error(`${label}: ${c}/${t}`),
+          }, claudeVersion)
+          : await runSkill(sc, {
+            models: [sides[side].model], runs: repeat, judgeModel: opts.judge, workingDir, maxConcurrency: Number(opts.concurrency),
+            onProgress: (c, t) => console.error(`${label}: ${c}/${t}`),
+          }, claudeVersion);
+        const appended = reindexResults(results[side], fresh.results);
+        store.saveRaw(name, fresh.raw);
+        store.appendResults(keys[side], appended);
+        results[side].push(...appended);
+      };
+
       for (const side of ['old', 'new'] as const) {
-        const sc = side === 'new' ? scNew : resolveSkill(sides.old.dir, name);
-        const key = cacheKey({ skill: name, skillHash: hashDir(sc.dir), casesHash: hashCases(sc.cases), model: sides[side].model, judge: opts.judge, runs });
+        const sc = scBySide[side];
+        const key = cacheKey({ skill: name, skillHash: hashDir(sc.dir), casesHash: hashCases(sc.cases), model: sides[side].model, judge: opts.judge, runsMax });
         keys[side] = key;
         const cached = opts.cache ? store.lookup(key) : [];
-        if (side === 'new' && key === keys.old) { results.new = results.old; console.error(`${name}: new side shares the old side results (${key})`); continue; }
-        if (cached.length) { console.error(`${name}: ${side} (${sides[side].model}) cached (${key})`); results[side] = cached; continue; }
-        const workingDir = resolve(buildFixture(sc, opts.fixturesDir));
-        const fresh = await runSkill(sc, {
-          models: [sides[side].model], runs, judgeModel: opts.judge, workingDir, maxConcurrency: Number(opts.concurrency),
-          onProgress: (c, t) => console.error(`${name} ${side}: ${c}/${t}`),
-        }, claudeVersion);
-        store.saveRaw(name, fresh.raw);
-        store.appendResults(key, fresh.results);
-        results[side] = fresh.results;
+        if (side === 'new' && key === keys.old) {
+          results.new = results.old;
+          console.error(`${name}: new side shares the old side results (${key})`);
+          continue;
+        }
+        if (cached.length) {
+          console.error(`${name}: ${side} (${sides[side].model}) cached (${key})`);
+          results[side] = cached;
+        }
+        const needed = Math.max(0, runs - countRuns(results[side], sc.cases.map((c) => c.name)));
+        if (needed) await runFresh(side, sc, needed);
       }
+
       const tagsOf = (c: string) => scNew.cases.find((x) => x.name === c)?.tags ?? [];
-      const sr: SkillReport = { ...compareSkill(name, results.old, results.new, tagsOf), flags: [], cases_source: scNew.source, cases_hash: hashCases(scNew.cases) };
+      let totalRuns = Math.min(runsMax, countRuns(results.old, caseNames), countRuns(results.new, caseNames));
+      const compareCurrent = () => compareSkill(
+        name,
+        totalRuns ? limitRuns(results.old, totalRuns) : results.old,
+        totalRuns ? limitRuns(results.new, totalRuns) : results.new,
+        tagsOf,
+      );
+      let comparison = compareCurrent();
+      while (totalRuns < runsMax) {
+        const ambiguousCases = comparison.cases.filter((c) => c.needsMoreRuns).map((c) => c.name);
+        if (!ambiguousCases.length) break;
+        const batchRuns = Math.min(runs, runsMax - totalRuns);
+        const targetRuns = totalRuns + batchRuns;
+        for (const caseName of ambiguousCases) {
+          for (const side of ['old', 'new'] as const) {
+            if (side === 'new' && keys.new === keys.old) continue;
+            const currentRuns = results[side].filter((r) => r.case === caseName).length;
+            const needed = Math.max(0, targetRuns - currentRuns);
+            if (needed) await runFresh(side, scBySide[side], needed, caseName);
+          }
+        }
+        totalRuns = targetRuns;
+        comparison = compareCurrent();
+      }
+      const sr: SkillReport = { ...comparison, flags: [], cases_source: scNew.source, cases_hash: hashCases(scNew.cases) };
       sr.flags = skillFlags(sr, scNew.source);
       const meta = { skill: name, agent: 'claude', old_model: opts.old, new_model: opts.new };
       for (const c of sr.cases) store.appendVerdict({ ...meta, case: c.name, ...c });
@@ -118,4 +198,6 @@ program
     console.log(buildFixture(resolveCases(opts.skillsDir, skill), opts.fixturesDir));
   });
 
-program.parse();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await program.parseAsync();
+}
