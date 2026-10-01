@@ -206,7 +206,7 @@ assertion 対応:
 | # | 内容 | 現状 | 備考 |
 | --- | --- | --- | --- |
 | 1 | AMBIGUOUS 帯の追加反復ループ | 実装・CLI 統合テスト済み | `--runs-max`、ケース単位の追加実行、同一キャッシュキーへの追記を実装済み。§9 の Runner モック統合テストで確認 |
-| 2 | `suite.yaml` と引数解決 (CLI → suite → 既定 → 対話) | CLI 引数のみ。`config/suite.ts`、`defaults.ts` は未作成 | `baseline_model`、`skills`、`runs`、`aggregate_drop_pt` の置き場。`zod` は未導入 (必要になった時点で追加) |
+| 2 | `suite.yaml` と引数解決 (CLI → suite → 既定 → 対話) | 実装・単体/CLI 統合テスト済み | `baseline_model`、`skills`、`runs`、`aggregate_drop_pt` を検証し、CLI 上書き・既定値・モデル入力に対応。`aggregate_drop_pt` の判定への適用は #6 |
 | 3 | judge を `anthropic:messages:*` に切り替え | agent-sdk provider (ツール無し) を judge にしている | API キーの用意が前提。judge コストの分離 (`cost_usd.judge`) もこのとき |
 | 4 | 発火 precision / recall と `trigger` セクション | 未実装。`trigger` / `no-trigger` タグのケースが 0 件 | ケース生成 (generated) が入った時点で。Skill 判定で最優先に扱う設計 |
 | 5 | LLM によるケース生成 (`generated`) | `resolveCases` は `generated` を空で返す | `<store>/generated/<skill>/<skill-hash>.yaml` に保存して再利用。`generated-cases` フラグは Reporter 側に実装済み |

@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline/promises';
 import { stringify } from 'yaml';
 import { listSkills, resolveCases, type SkillCases } from './cases/load.js';
+import { DEFAULTS } from './config/defaults.js';
+import { readSuiteConfig, resolveCompareConfig, selectSkills } from './config/suite.js';
 import { buildFixture } from './planner/fixture.js';
 import { runSkill, runSkillCase } from './runner/promptfoo.js';
 import { compareSkill } from './comparator/verdict.js';
@@ -13,12 +15,25 @@ import { buildReport, exitCode, skillFlags, toMarkdown, type SkillReport } from 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { cliVersion } from './runner/version.js';
 import type { RunResult } from './runner/types.js';
-import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const DEFAULT_SKILLS_DIR = join(homedir(), '.claude', 'skills');
 export const program = new Command().name('skilldrift').version('0.1.0');
 type Side = 'old' | 'new';
+
+async function promptForModel(label: string): Promise<string> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    const guidance = label === 'Baseline model' ? 'pass --old or set baseline_model in suite.yaml' : 'pass --new';
+    throw new Error(`${label} is required; ${guidance}`);
+  }
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await prompt.question(`${label}: `)).trim();
+    if (!answer) throw new Error(`${label} is required`);
+    return answer;
+  } finally {
+    prompt.close();
+  }
+}
 
 function countRuns(results: RunResult[], caseNames: string[]): number {
   if (!caseNames.length) return 0;
@@ -50,43 +65,52 @@ function reindexResults(existing: RunResult[], fresh: RunResult[]): RunResult[] 
 program
   .command('compare')
   .description('Compare skill behaviour between two models')
-  .option('--skills-dir <dir>', 'skills directory', DEFAULT_SKILLS_DIR)
-  .option('--fixtures-dir <dir>', 'fixtures root', 'fixtures')
+  .option('--suite <file>', 'suite configuration file (default: suite.yaml)')
+  .option('--skills-dir <dir>', 'skills directory', DEFAULTS.skillsDir)
+  .option('--fixtures-dir <dir>', 'fixtures root', DEFAULTS.fixturesDir)
   .option('--skill <name>', 'only this skill')
   .option('--case <name>', 'only this case')
   .option('--old <model>', 'baseline model')
   .option('--new <model>', 'candidate model')
   .option('--old-skills-dir <dir>', 'skills directory for the baseline side (default: --skills-dir)')
-  .option('--runs <n>', 'runs per case per model', '1')
+  .option('--runs <n>', 'runs per case per model')
   .option('--runs-max <n>', 'maximum runs per case per model (default: --runs)')
-  .option('--judge <model>', 'judge model for llm_rubric', 'claude-haiku-4-5-20251001')
-  .option('--concurrency <n>', 'max concurrent runs', '2')
-  .option('--store <dir>', 'store directory', '.skilldrift')
+  .option('--judge <model>', 'judge model for llm_rubric', DEFAULTS.judgeModel)
+  .option('--concurrency <n>', 'max concurrent runs', String(DEFAULTS.concurrency))
+  .option('--store <dir>', 'store directory', DEFAULTS.store)
+  .option('--aggregate-drop-pt <n>', 'aggregate pass-rate drop threshold (0-1; verdict support is planned)')
   .option('--no-cache', 'rerun even if results for the same key exist')
   .option('--out <dir>', 'report directory (default: <store>/reports/claude/<new-model>/<timestamp>)')
-  .option('--format <fmt>', 'md | json | both', 'both')
+  .option('--format <fmt>', 'md | json | both', DEFAULTS.format)
   .option('--dry-run', 'list skills and resolved cases without running')
-  .action(async (opts: { skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; oldSkillsDir?: string; runs: string; runsMax?: string; judge: string; concurrency: string; store: string; cache: boolean; out?: string; format: string; dryRun?: boolean }) => {
+  .action(async (opts: { suite?: string; skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; oldSkillsDir?: string; runs?: string; runsMax?: string; judge: string; concurrency: string; store: string; aggregateDropPt?: string; cache: boolean; out?: string; format: string; dryRun?: boolean }) => {
+    const suite = readSuiteConfig(opts.suite ?? DEFAULTS.suitePath, opts.suite === undefined);
+    const availableSkills = listSkills(opts.skillsDir);
+    const selectedSkills = selectSkills(opts.skill, suite, availableSkills);
     const resolveSkill = (dir: string, s: string) => {
       const sc = resolveCases(dir, s);
       return { ...sc, cases: sc.cases.filter((c) => !opts.case || c.name === opts.case) };
     };
-    const names = listSkills(opts.skillsDir).filter((s) => !opts.skill || s === opts.skill);
     if (opts.dryRun) {
-      const skills = names.map((s) => resolveSkill(opts.skillsDir, s));
+      const skills = selectedSkills.map((s) => resolveSkill(opts.skillsDir, s));
       for (const s of skills) console.log(`${s.skill.padEnd(36)} ${String(s.cases.length).padStart(3)} cases (${s.source})`);
       console.log(`\n${skills.length} skills, ${skills.reduce((n, s) => n + s.cases.length, 0)} cases`);
       return;
     }
-    if (!opts.old || !opts.new) return program.error('--old and --new are required');
+    const config = await resolveCompareConfig({
+      old: opts.old, new: opts.new, skill: opts.skill, runs: opts.runs, aggregateDropPt: opts.aggregateDropPt,
+    }, suite, availableSkills, promptForModel);
+    const names = config.skills;
+    const oldModel = config.oldModel;
+    const newModel = config.newModel;
     const claudeVersion = cliVersion('claude');
     const store = new Store(opts.store);
-    const runs = Number(opts.runs);
+    const runs = config.runs;
     const runsMax = opts.runsMax == null ? runs : Number(opts.runsMax);
     if (!Number.isInteger(runs) || runs < 1) return program.error('--runs must be a positive integer');
     if (!Number.isInteger(runsMax) || runsMax < runs) return program.error('--runs-max must be an integer greater than or equal to --runs');
     const startedAt = new Date();
-    const sides = { old: { model: opts.old, dir: opts.oldSkillsDir ?? opts.skillsDir }, new: { model: opts.new, dir: opts.skillsDir } } as const;
+    const sides = { old: { model: oldModel, dir: opts.oldSkillsDir ?? opts.skillsDir }, new: { model: newModel, dir: opts.skillsDir } } as const;
     const all = { old: [] as RunResult[], new: [] as RunResult[] };
     const reports: SkillReport[] = [];
     for (const name of names) {
@@ -160,15 +184,15 @@ program
       }
       const sr: SkillReport = { ...comparison, flags: [], cases_source: scNew.source, cases_hash: hashCases(scNew.cases) };
       sr.flags = skillFlags(sr, scNew.source);
-      const meta = { skill: name, agent: 'claude', old_model: opts.old, new_model: opts.new };
+      const meta = { skill: name, agent: 'claude', old_model: oldModel, new_model: newModel };
       for (const c of sr.cases) store.appendVerdict({ ...meta, case: c.name, ...c });
       store.appendVerdict({ ...meta, case: null, verdict: sr.verdict, flags: sr.flags, aggregate: sr.aggregate, keys });
       all.old.push(...results.old);
       all.new.push(...results.new);
       reports.push(sr);
     }
-    const report = buildReport(reports, all, { oldModel: opts.old, newModel: opts.new, startedAt, claudeVersion });
-    const out = opts.out ?? join(opts.store, 'reports', 'claude', opts.new, startedAt.toISOString().replace(/[:.]/g, '-'));
+    const report = buildReport(reports, all, { oldModel, newModel, startedAt, claudeVersion });
+    const out = opts.out ?? join(opts.store, 'reports', 'claude', newModel, startedAt.toISOString().replace(/[:.]/g, '-'));
     mkdirSync(out, { recursive: true });
     if (opts.format !== 'json') writeFileSync(join(out, 'report.md'), toMarkdown(report));
     if (opts.format !== 'md') writeFileSync(join(out, 'report.json'), JSON.stringify(report, null, 2));
@@ -182,7 +206,7 @@ program
   .argument('<action>', 'export')
   .argument('<skill>', 'skill name')
   .description('Print resolved cases of a skill as neutral-format YAML')
-  .option('--skills-dir <dir>', 'skills directory', DEFAULT_SKILLS_DIR)
+  .option('--skills-dir <dir>', 'skills directory', DEFAULTS.skillsDir)
   .action((action: string, skill: string, opts: { skillsDir: string }) => {
     if (action !== 'export') program.error(`unknown action: ${action}`);
     process.stdout.write(stringify(resolveCases(opts.skillsDir, skill).cases));
@@ -192,8 +216,8 @@ program
   .command('fixture')
   .argument('<skill>', 'skill name')
   .description('Build fixtures/<skill>/ working directory')
-  .option('--skills-dir <dir>', 'skills directory', DEFAULT_SKILLS_DIR)
-  .option('--fixtures-dir <dir>', 'fixtures root', 'fixtures')
+  .option('--skills-dir <dir>', 'skills directory', DEFAULTS.skillsDir)
+  .option('--fixtures-dir <dir>', 'fixtures root', DEFAULTS.fixturesDir)
   .action((skill: string, opts: { skillsDir: string; fixturesDir: string }) => {
     console.log(buildFixture(resolveCases(opts.skillsDir, skill), opts.fixturesDir));
   });

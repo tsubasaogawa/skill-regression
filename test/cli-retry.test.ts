@@ -50,6 +50,8 @@ it('reruns only ambiguous cases, caps the last batch, and appends results under 
     assertions: [],
   }));
   writeFileSync(join(evalsDir, 'cases.yaml'), stringify(cases));
+  const suitePath = join(root, 'suite.yaml');
+  writeFileSync(suitePath, 'baseline_model: old-model\nskills: [demo]\nruns: 5\naggregate_drop_pt: 0.1\n');
 
   const makeResults = (caseNames: string[], model: string, runs: number, passes: (name: string, index: number) => boolean): RunResult[] =>
     caseNames.flatMap((name) => Array.from({ length: runs }, (_, run_idx) => ({
@@ -90,12 +92,10 @@ it('reruns only ambiguous cases, caps the last batch, and appends results under 
 
   await program.parseAsync([
     'compare',
+    '--suite', suitePath,
     '--skills-dir', skillsDir,
     '--fixtures-dir', fixturesDir,
-    '--skill', 'demo',
-    '--old', 'old-model',
     '--new', 'new-model',
-    '--runs', '5',
     '--runs-max', '12',
     '--judge', 'judge-model',
     '--concurrency', '1',
