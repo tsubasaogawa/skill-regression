@@ -3,10 +3,21 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { join } from 'node:path';
 import type { RunResult } from '../runner/types.js';
 
-export interface KeyParts { skill: string; skillHash: string; casesHash: string; model: string; judge: string; runs: number }
+export interface KeyParts {
+  skill: string;
+  skillHash: string;
+  casesHash: string;
+  model: string;
+  judge: string;
+  runsMax?: number;
+  /** @deprecated Use runsMax. Kept for compatibility with existing callers. */
+  runs?: number;
+}
 
 export function cacheKey(p: KeyParts): string {
-  return createHash('sha256').update(JSON.stringify([p.skill, p.skillHash, p.casesHash, p.model, p.judge, p.runs])).digest('hex').slice(0, 16);
+  const runsMax = p.runsMax ?? p.runs;
+  if (runsMax == null) throw new Error('cache key requires runsMax');
+  return createHash('sha256').update(JSON.stringify([p.skill, p.skillHash, p.casesHash, p.model, p.judge, runsMax])).digest('hex').slice(0, 16);
 }
 
 export interface StoredResult extends RunResult { key: string; ts: string }

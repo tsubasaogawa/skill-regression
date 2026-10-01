@@ -205,7 +205,7 @@ assertion 対応:
 
 | # | 内容 | 現状 | 備考 |
 | --- | --- | --- | --- |
-| 1 | AMBIGUOUS 帯の追加反復ループ | P_reg 0.80〜0.95 を直接 INCONCLUSIVE にしている (`comparator/verdict.ts` の `ponytail:` コメント) | 設計: 両モデルに 5 回ずつ追加して再計算、`runs_max` で INCONCLUSIVE。`--runs-max` の追加が必要 |
+| 1 | AMBIGUOUS 帯の追加反復ループ | 実装・CLI 統合テスト済み | `--runs-max`、ケース単位の追加実行、同一キャッシュキーへの追記を実装済み。§9 の Runner モック統合テストで確認 |
 | 2 | `suite.yaml` と引数解決 (CLI → suite → 既定 → 対話) | CLI 引数のみ。`config/suite.ts`、`defaults.ts` は未作成 | `baseline_model`、`skills`、`runs`、`aggregate_drop_pt` の置き場。`zod` は未導入 (必要になった時点で追加) |
 | 3 | judge を `anthropic:messages:*` に切り替え | agent-sdk provider (ツール無し) を judge にしている | API キーの用意が前提。judge コストの分離 (`cost_usd.judge`) もこのとき |
 | 4 | 発火 precision / recall と `trigger` セクション | 未実装。`trigger` / `no-trigger` タグのケースが 0 件 | ケース生成 (generated) が入った時点で。Skill 判定で最優先に扱う設計 |
@@ -225,3 +225,13 @@ assertion 対応:
 - `planner/plan.ts` (実行計画とコスト見積り) は作らず、`--dry-run` は Skill とケース数の表示のみ
 - `claude_version` はキャッシュ鍵に含めない (Claude Code 更新のたびに無効化されるため)。結果行には記録している
 - Store の既定は `~/.local/skilldrift` ではなく `./.skilldrift`
+
+## 9. AMBIGUOUS 帯の追加反復ループ: 完了検証 (2026-10-01)
+
+`pnpm build` と `pnpm test`（7 files / 20 tests）が成功。`test/cli-retry.test.ts` で
+Runner をモックした CLI 統合テストを追加し、実モデルを呼ばずに以下を確認した。
+
+- AMBIGUOUS なケースだけを old/new の両側で再実行し、確定したケースは次のバッチで再実行しない。
+- `runs-max` 到達時に未確定ケースが外部 verdict の `INCONCLUSIVE` になる。
+- 最終バッチが `runs-max` を超えない。
+- 追加結果が初回結果と同じキャッシュキーに追記される。

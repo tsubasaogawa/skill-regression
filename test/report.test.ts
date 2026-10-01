@@ -3,7 +3,7 @@ import { exitCode, skillFlags, toMarkdown, buildReport, type SkillReport } from 
 import type { CaseComparison } from '../src/comparator/verdict.js';
 
 const c = (verdict: CaseComparison['verdict'], judge = false, errors = 0): CaseComparison =>
-  ({ name: 'c', tags: [], verdict, judge_dependent: judge, old: { passed: 5, runs: 5, errors: 0 }, new: { passed: 2, runs: 5, errors }, p_reg: 0.97, evidence: [{ run_idx: 0, failed_assertions: ['skill-used'], excerpt: 'out' }] });
+  ({ name: 'c', tags: [], verdict, needsMoreRuns: false, judge_dependent: judge, old: { passed: 5, runs: 5, errors: 0 }, new: { passed: 2, runs: 5, errors }, p_reg: 0.97, evidence: [{ run_idx: 0, failed_assertions: ['skill-used'], excerpt: 'out' }] });
 const s = (cases: CaseComparison[], source: 'evals.json' | 'generated' = 'evals.json'): SkillReport => {
   const base = { name: 's', verdict: cases[0].verdict, aggregate: { old_pass_rate: 1, new_pass_rate: 0.4 }, cases, flags: [] as SkillReport['flags'], cases_source: source, cases_hash: 'h' };
   return { ...base, flags: skillFlags(base, source) };

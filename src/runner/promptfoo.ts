@@ -65,11 +65,21 @@ export function normalize(results: EvaluateResult[], skill: string, claudeVersio
   });
 }
 
-export async function runSkill(sc: SkillCases, o: RunOptions, claudeVersion?: string): Promise<{ results: RunResult[]; raw: EvaluateSummaryV3 }> {
+async function runSuite(sc: SkillCases, o: RunOptions, claudeVersion?: string): Promise<{ results: RunResult[]; raw: EvaluateSummaryV3 }> {
   const evalRecord = await evaluate(toTestSuite(sc, o), {
     repeat: o.runs, cache: false, maxConcurrency: o.maxConcurrency ?? 2, silent: true, showProgressBar: false,
     progressCallback: (completed, total) => o.onProgress?.(completed, total),
   });
   const raw = (await evalRecord.toEvaluateSummary()) as EvaluateSummaryV3;
   return { results: normalize(raw.results, sc.skill, claudeVersion), raw };
+}
+
+export function runSkill(sc: SkillCases, o: RunOptions, claudeVersion?: string): Promise<{ results: RunResult[]; raw: EvaluateSummaryV3 }> {
+  return runSuite(sc, o, claudeVersion);
+}
+
+export async function runSkillCase(sc: SkillCases, caseName: string, o: RunOptions, claudeVersion?: string): Promise<{ results: RunResult[]; raw: EvaluateSummaryV3 }> {
+  const testCase = sc.cases.find((c) => c.name === caseName);
+  if (!testCase) throw new Error(`case not found: ${sc.skill}/${caseName}`);
+  return runSuite({ ...sc, cases: [testCase] }, o, claudeVersion);
 }

@@ -2,18 +2,23 @@ import type { RunResult } from '../runner/types.js';
 import { pRegressed } from './beta.js';
 
 export type CaseVerdict = 'REGRESSED' | 'IMPROVED' | 'UNCHANGED' | 'INCONCLUSIVE';
+export type InternalVerdict = CaseVerdict | 'AMBIGUOUS';
 export type SkillVerdict = CaseVerdict;
 
 export interface Tally { passed: number; runs: number; errors: number }
-export interface CaseComparison { name: string; tags: string[]; verdict: CaseVerdict; judge_dependent: boolean; old: Tally; new: Tally; p_reg: number; evidence: Evidence[] }
+export interface CaseComparison { name: string; tags: string[]; verdict: CaseVerdict; needsMoreRuns: boolean; judge_dependent: boolean; old: Tally; new: Tally; p_reg: number; evidence: Evidence[] }
 export interface Evidence { run_idx: number; failed_assertions: string[]; excerpt: string }
 export interface SkillComparison { name: string; verdict: SkillVerdict; aggregate: { old_pass_rate: number; new_pass_rate: number }; cases: CaseComparison[] }
 
-// ponytail: no additional-run loop, so the design's AMBIGUOUS band (0.80-0.95) collapses straight to INCONCLUSIVE
-export function toVerdict(p: number): CaseVerdict {
+export function toInternalVerdict(p: number): InternalVerdict {
   if (p >= 0.95) return 'REGRESSED';
   if (p <= 0.05) return 'IMPROVED';
-  return p >= 0.8 ? 'INCONCLUSIVE' : 'UNCHANGED';
+  return p >= 0.8 ? 'AMBIGUOUS' : 'UNCHANGED';
+}
+
+export function toVerdict(p: number): CaseVerdict {
+  const verdict = toInternalVerdict(p);
+  return verdict === 'AMBIGUOUS' ? 'INCONCLUSIVE' : verdict;
 }
 
 function tally(rs: RunResult[]): Tally {
@@ -25,8 +30,10 @@ export function compareCase(name: string, olds: RunResult[], news: RunResult[], 
   const o = tally(olds), n = tally(news);
   const conclusive = o.runs > 0 && n.runs > 0;
   const p = conclusive ? pRegressed(o.passed, o.runs, n.passed, n.runs) : 0.5;
+  const internalVerdict = conclusive ? toInternalVerdict(p) : 'INCONCLUSIVE';
   return {
-    name, tags, verdict: conclusive ? toVerdict(p) : 'INCONCLUSIVE',
+    name, tags, verdict: internalVerdict === 'AMBIGUOUS' ? 'INCONCLUSIVE' : internalVerdict,
+    needsMoreRuns: internalVerdict === 'AMBIGUOUS',
     judge_dependent: [...olds, ...news].some((r) => r.judge_dependent),
     old: o, new: n, p_reg: p,
     evidence: news.filter((r) => !r.error && !r.passed).slice(0, 2).map((r) => ({ run_idx: r.run_idx, failed_assertions: r.failed_assertions ?? [], excerpt: r.excerpt ?? '' })),
