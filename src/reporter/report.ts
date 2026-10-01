@@ -11,7 +11,7 @@ export interface Report {
   skilldrift_version: string; promptfoo_version: string; agent: string;
   old_model: string; new_model: string; claude_version?: string;
   started_at: string; finished_at: string;
-  cost_usd: { old: number; new: number };
+  cost_usd: { old: number; new: number; judge: number | null };
   exit_code: number; skills: SkillReport[];
 }
 
@@ -39,7 +39,7 @@ export function buildReport(skills: SkillReport[], results: { old: RunResult[]; 
     agent: 'claude', old_model: o.oldModel, new_model: o.newModel,
     ...(o.claudeVersion ? { claude_version: o.claudeVersion } : {}),
     started_at: o.startedAt.toISOString(), finished_at: new Date().toISOString(),
-    cost_usd: { old: cost(results.old), new: cost(results.new) },
+    cost_usd: { old: cost(results.old), new: cost(results.new), judge: null },
     exit_code: exitCode(skills), skills,
   };
 }
@@ -47,9 +47,10 @@ export function buildReport(skills: SkillReport[], results: { old: RunResult[]; 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 export function toMarkdown(r: Report): string {
+  const judgeCost = r.cost_usd.judge == null ? 'unavailable' : `$${r.cost_usd.judge.toFixed(2)}`;
   const lines = [
     `# skilldrift: ${r.old_model} → ${r.new_model}`, '',
-    `exit code ${r.exit_code}, cost old $${r.cost_usd.old.toFixed(2)} / new $${r.cost_usd.new.toFixed(2)}, claude ${r.claude_version ?? '?'}, promptfoo ${r.promptfoo_version}`, '',
+    `exit code ${r.exit_code}, cost old $${r.cost_usd.old.toFixed(2)} / new $${r.cost_usd.new.toFixed(2)} / judge ${judgeCost}, claude ${r.claude_version ?? '?'}, promptfoo ${r.promptfoo_version}`, '',
     '| Skill | Verdict | Old | New | Flags |', '| --- | --- | --- | --- | --- |',
     ...r.skills.map((s) => `| ${s.name} | ${s.verdict} | ${pct(s.aggregate.old_pass_rate)} | ${pct(s.aggregate.new_pass_rate)} | ${s.flags.join(', ')} |`),
   ];

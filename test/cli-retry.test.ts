@@ -10,6 +10,7 @@ import { program } from '../src/cli.js';
 import { cacheKey, Store } from '../src/store/store.js';
 import type { RunResult } from '../src/runner/types.js';
 import { runSkill, runSkillCase } from '../src/runner/promptfoo.js';
+import { JUDGE_PROVIDER } from '../src/config/defaults.js';
 
 vi.mock('../src/runner/promptfoo.js', () => ({
   runSkill: vi.fn(),
@@ -120,7 +121,7 @@ it('reruns only ambiguous cases, caps the last batch, and appends results under 
     skillHash: hashDir(sc.dir),
     casesHash: hashCases(sc.cases),
     model,
-    judge: 'judge-model',
+    judge: `${JUDGE_PROVIDER}:judge-model`,
     runsMax: 12,
   }));
   const oldResults = stored('old-model');

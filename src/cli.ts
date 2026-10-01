@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stringify } from 'yaml';
 import { listSkills, resolveCases, type SkillCases } from './cases/load.js';
-import { DEFAULTS } from './config/defaults.js';
+import { DEFAULTS, JUDGE_PROVIDER } from './config/defaults.js';
 import { readSuiteConfig, resolveCompareConfig, selectSkills } from './config/suite.js';
 import { buildFixture } from './planner/fixture.js';
 import { runSkill, runSkillCase } from './runner/promptfoo.js';
@@ -141,7 +141,7 @@ program
 
       for (const side of ['old', 'new'] as const) {
         const sc = scBySide[side];
-        const key = cacheKey({ skill: name, skillHash: hashDir(sc.dir), casesHash: hashCases(sc.cases), model: sides[side].model, judge: opts.judge, runsMax });
+        const key = cacheKey({ skill: name, skillHash: hashDir(sc.dir), casesHash: hashCases(sc.cases), model: sides[side].model, judge: `${JUDGE_PROVIDER}:${opts.judge}`, runsMax });
         keys[side] = key;
         const cached = opts.cache ? store.lookup(key) : [];
         if (side === 'new' && key === keys.old) {
