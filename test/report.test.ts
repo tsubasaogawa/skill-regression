@@ -21,8 +21,10 @@ it('flags and markdown', () => {
   const sr = s([c('REGRESSED', true, 1)], 'generated');
   expect(sr.flags).toEqual(['generated-cases', 'judge-dependent', 'partial']);
   const r = buildReport([sr], { old: [], new: [] }, { oldModel: 'a', newModel: 'b', startedAt: new Date() });
+  expect(r.cost_usd.judge).toBeNull();
   expect(r.exit_code).toBe(2);
   const md = toMarkdown(r);
+  expect(md).toContain('judge unavailable');
   expect(md).toContain('| s | REGRESSED | 100% | 40% | generated-cases, judge-dependent, partial |');
   expect(md).toContain('| c | REGRESSED | 5/5 | 2/5 | 0.97 | yes |');
   expect(md).toContain('failed skill-used');

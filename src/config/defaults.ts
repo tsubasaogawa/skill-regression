@@ -1,6 +1,8 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+export const JUDGE_PROVIDER = 'anthropic:messages';
+
 export const DEFAULTS = {
   suitePath: 'suite.yaml',
   skillsDir: join(homedir(), '.claude', 'skills'),

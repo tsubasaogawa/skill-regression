@@ -1,5 +1,5 @@
-import { tmpdir } from 'node:os';
 import { evaluate, ResultFailureReason, type EvaluateResult, type EvaluateSummaryV3, type EvaluateTestSuite } from 'promptfoo';
+import { JUDGE_PROVIDER } from '../config/defaults.js';
 import type { SkillCases } from '../cases/load.js';
 import type { Assertion } from '../cases/types.js';
 import type { RunResult } from './types.js';
@@ -11,6 +11,16 @@ export interface RunOptions {
   workingDir: string;
   maxConcurrency?: number;
   onProgress?: (completed: number, total: number) => void;
+}
+
+export function requiresJudge(sc: SkillCases): boolean {
+  return sc.cases.some((c) => c.assertions.some((a) => a.type === 'llm_rubric'));
+}
+
+export function assertJudgeApiKey(sc: SkillCases): void {
+  if (requiresJudge(sc) && !process.env.ANTHROPIC_API_KEY) {
+    throw new Error('ANTHROPIC_API_KEY is required for llm_rubric assertions using the Anthropic Messages judge');
+  }
 }
 
 export function toAssertion(a: Assertion, skill: string, workingDir: string) {
@@ -29,8 +39,7 @@ export function toTestSuite(sc: SkillCases, o: RunOptions): EvaluateTestSuite {
   return {
     prompts: ['{{prompt}}'],
     providers: o.models.map((m) => agentSdk(m, { working_dir: o.workingDir, setting_sources: ['project'], skills: [sc.skill], permission_mode: 'bypassPermissions', allow_dangerously_skip_permissions: true, allow_all_tools: true })),
-    // ponytail: judge via agent-sdk so Claude Code login suffices; switch to anthropic:messages when an API key is available
-    defaultTest: { options: { provider: agentSdk(o.judgeModel, { working_dir: tmpdir(), tools: [] }) } },
+    defaultTest: { options: { provider: `${JUDGE_PROVIDER}:${o.judgeModel}` } },
     tests: sc.cases.map((c) => ({
       description: c.name,
       vars: { prompt: c.prompt },
@@ -66,6 +75,7 @@ export function normalize(results: EvaluateResult[], skill: string, claudeVersio
 }
 
 async function runSuite(sc: SkillCases, o: RunOptions, claudeVersion?: string): Promise<{ results: RunResult[]; raw: EvaluateSummaryV3 }> {
+  assertJudgeApiKey(sc);
   const evalRecord = await evaluate(toTestSuite(sc, o), {
     repeat: o.runs, cache: false, maxConcurrency: o.maxConcurrency ?? 2, silent: true, showProgressBar: false,
     progressCallback: (completed, total) => o.onProgress?.(completed, total),
