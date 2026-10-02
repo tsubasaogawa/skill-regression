@@ -215,7 +215,7 @@ assertion 対応:
 | 8 | `skilldrift init` | 実装・テスト済み | `--baseline-model` (無ければ対話)、`--all-skills`、`--force`。§15 参照 |
 | 9 | `--max-cost-usd`、`--non-interactive` (exit 3)、`--webhook`、`--agent` | `--agent` 以外は実装・CLI 統合テスト済み | `--agent codex` はフェーズ 2。§16 参照 |
 | 10 | `/tmp` 出力の fixture 内パスへの書き換え | 実装・単体テスト済み | Runner が prompt と assertion の `/tmp` を `<fixture>/tmp` に書き換える。§17 参照 |
-| 11 | `low-power` フラグ | 未実装 | runs が少なく REGRESSED を検出しきれない場合の警告。閾値は設計ノートに無い |
+| 11 | `low-power` フラグ | 実装・単体テスト済み | 閾値パラメータ無し。「新モデルが 0 件合格でも P_reg < 0.95」なら検出力不足。§18 参照 |
 | 12 | README.md、LICENSE (MIT) | 未作成 | |
 | 13 | `raw/` ディレクトリの削除 | 順 4 の残骸。`.skilldrift/raw/` に移行済み | 手動で `rm -rf raw/` |
 
@@ -288,3 +288,9 @@ Runner をモックした CLI 統合テストを追加し、実モデルを呼�
 - fixture 生成時に `<fixture>/tmp/` を空で作る。fixture は `runFresh` ごとに作り直すので、バッチ間での残骸は無い。
 - 同一バッチ内の反復で前回の出力ファイルが残る問題は、`file_exists.js` が存在確認後にファイルを削除することで防ぐ (`ponytail:` コメント)。同じケースの反復が並列実行された場合の競合は許容。
 - `permission_mode` は `bypassPermissions` のまま。書き込み先が fixture 内になったので `acceptEdits` に戻せる可能性があるが未確認。
+
+## 18. `low-power` フラグ (2026-10-02)
+
+- 閾値を新設せず、既存の REGRESSED 境界 (P_reg >= 0.95) から導く。ケースの旧側実績 (passed / runs) と新側 runs で、新側が 0 件合格だったと仮定した P_reg が 0.95 未満なら、そのケースは退行を検出できない (`isLowPower`)。
+- verdict が UNCHANGED かつ検出力不足のケースが 1 つでもあれば Skill に `low-power` を付ける。INCONCLUSIVE は既に不確かさを示しているので対象外。
+- 目安: 旧 1/1 vs 新 1/1 は low-power (P_reg 0.83)、旧 2/2 vs 新 2/2 は境界で付かない (0.95)、旧 1/2 は付く (0.80)。終了コードには影響しない。

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { exitCode, skillFlags, toMarkdown, buildReport, type SkillReport } from '../src/reporter/report.js';
+import { exitCode, isLowPower, skillFlags, toMarkdown, buildReport, type SkillReport } from '../src/reporter/report.js';
 import type { CaseComparison } from '../src/comparator/verdict.js';
 
 const c = (verdict: CaseComparison['verdict'], judge = false, errors = 0): CaseComparison =>
@@ -46,4 +46,16 @@ it('sets exit code and renders trigger regressions', () => {
   expect(md).toContain('## Trigger precision / recall');
   expect(md).toContain('| s | REGRESSED | 100% | 50% | 100% | 40% | 0.97 |');
   expect(md).toContain('| s | fires | yes | REGRESSED | 5/5 | 2/5 | 0.97 |');
+});
+
+it('flags low power when a total failure could not have been detected', () => {
+  const tally = (passed: number, runs: number) => ({ passed, runs, errors: 0 });
+  expect(isLowPower({ old: tally(1, 1), new: tally(1, 1) })).toBe(true);
+  expect(isLowPower({ old: tally(1, 2), new: tally(2, 2) })).toBe(true);
+  expect(isLowPower({ old: tally(2, 2), new: tally(2, 2) })).toBe(false);
+  expect(isLowPower({ old: tally(5, 5), new: tally(5, 5) })).toBe(false);
+  const weak = { ...c('UNCHANGED'), old: tally(1, 1), new: tally(1, 1), p_reg: 0.5 };
+  expect(s([weak]).flags).toEqual(['low-power']);
+  expect(s([{ ...weak, verdict: 'INCONCLUSIVE' }]).flags).toEqual([]);
+  expect(s([c('UNCHANGED')]).flags).toEqual([]);
 });

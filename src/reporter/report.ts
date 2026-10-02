@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
-import type { SkillComparison } from '../comparator/verdict.js';
+import { pRegressed } from '../comparator/beta.js';
+import type { CaseComparison, SkillComparison } from '../comparator/verdict.js';
 import type { CaseSource } from '../cases/load.js';
 import type { RunResult } from '../runner/types.js';
 
@@ -15,10 +16,16 @@ export interface Report {
   exit_code: number; skills: SkillReport[]; skipped_skills?: string[];
 }
 
+/** True when even zero new-model passes could not reach REGRESSED, so an UNCHANGED verdict proves nothing. */
+export function isLowPower(c: Pick<CaseComparison, 'old' | 'new'>): boolean {
+  return !c.old.runs || !c.new.runs || pRegressed(c.old.passed, c.old.runs, 0, c.new.runs) < 0.95;
+}
+
 export function skillFlags(sc: SkillComparison, source: CaseSource): Flag[] {
   const f: Flag[] = [];
   if (source === 'generated') f.push('generated-cases');
   if (sc.cases.some((c) => c.judge_dependent)) f.push('judge-dependent');
+  if (sc.cases.some((c) => c.verdict === 'UNCHANGED' && isLowPower(c))) f.push('low-power');
   if (sc.cases.some((c) => c.old.errors + c.new.errors > 0)) f.push('partial');
   return f;
 }
