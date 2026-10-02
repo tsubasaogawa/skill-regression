@@ -22,3 +22,22 @@ it('assigns run_idx per (label, case) in order and derives triggered / judge_dep
   ]);
   expect(out[0].claude_version).toBe('2.1.282');
 });
+
+it('tracks deterministic assertion failures separately from rubric failures', () => {
+  const mixed = (deterministic: boolean, rubric: boolean) => row('claude/a', 'mixed', {
+    success: deterministic && rubric,
+    gradingResult: {
+      pass: deterministic && rubric, score: 0, reason: '',
+      componentResults: [
+        { pass: deterministic, score: 0, reason: '', assertion: { type: 'contains', value: 'word' } },
+        { pass: rubric, score: 0, reason: '', assertion: { type: 'llm-rubric', value: 'rubric' } },
+      ],
+    },
+  });
+  expect(normalize([mixed(false, true), mixed(true, false)], 's').map((r) => ({
+    passed: r.passed, deterministic: r.deterministic_passed, judge: r.judge_dependent,
+  }))).toEqual([
+    { passed: false, deterministic: false, judge: true },
+    { passed: false, deterministic: true, judge: true },
+  ]);
+});

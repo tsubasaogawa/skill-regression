@@ -114,3 +114,38 @@ it('marks a skill DEGRADED when the aggregate pass rate drops by the threshold w
   expect(compareSkill('s', olds, news, () => [], 0.25).verdict).toBe('UNCHANGED');
   expect(compareSkill('s', olds, [...runs('new', 'a', k(4, 5)), ...runs('new', 'b', k(1, 5))], () => [], 0.2).verdict).toBe('REGRESSED');
 });
+
+it('detects precision regression across no-trigger cases that are individually unchanged', () => {
+  const old = runs('old', 'trigger', k(5, 5));
+  const newer = runs('new', 'trigger', k(5, 5));
+  for (let i = 0; i < 10; i++) {
+    old.push(...runs('old', `negative-${i}`, k(5, 5)).map((r) => ({ ...r, triggered: false })));
+    newer.push(...runs('new', `negative-${i}`, k(5, 5)).map((r, n) => ({ ...r, triggered: n === 0 })));
+  }
+  const comparison = compareSkill('s', old, newer, (name) => [name === 'trigger' ? 'trigger' : 'no-trigger']);
+  expect(comparison.trigger?.cases.every((c) => c.verdict === 'UNCHANGED')).toBe(true);
+  expect(comparison.trigger?.precision?.verdict).toBe('REGRESSED');
+  expect(comparison.trigger?.old.precision).toBe(1);
+  expect(comparison.trigger?.new.precision).toBeCloseTo(1 / 3);
+  expect(comparison.verdict).toBe('REGRESSED');
+});
+
+it('detects recall regression across trigger cases that are individually unchanged', () => {
+  const old = Array.from({ length: 10 }, (_, i) => runs('old', `t-${i}`, k(5, 5))).flat();
+  const newer = old.map((r) => ({ ...r, model: 'new', triggered: r.run_idx !== 0 }));
+  const comparison = compareSkill('s', old, newer, () => ['trigger']);
+  expect(comparison.trigger?.cases.every((c) => c.verdict === 'UNCHANGED')).toBe(true);
+  expect(comparison.trigger?.recall?.verdict).toBe('REGRESSED');
+  expect(comparison.verdict).toBe('REGRESSED');
+});
+
+it('keeps undefined precision unjudged and requests additional runs for ambiguous recall', () => {
+  const old = runs('old', 't', k(5, 5));
+  const newer = runs('new', 't', k(5, 5)).map((r) => ({ ...r, triggered: r.run_idx < 3 }));
+  const comparison = compareSkill('s', old, newer, () => ['trigger']);
+  expect(comparison.trigger?.recall?.needsMoreRuns).toBe(true);
+  expect(comparison.cases[0].needsMoreRuns).toBe(true);
+  const absent = compareSkill('s', old, newer.map((r) => ({ ...r, triggered: false })), () => ['trigger']);
+  expect(absent.trigger?.precision).toBeNull();
+  expect(absent.trigger?.recall?.verdict).toBe('REGRESSED');
+});

@@ -33,9 +33,9 @@ export function skillFlags(sc: SkillComparison, source: CaseSource): Flag[] {
 /** 0 = no regression, 1 = regression on a deterministic case, 2 = degraded, inconclusive, partial or skipped. Judge-dependent regressions are report-only. */
 export function exitCode(skills: SkillReport[], skipped: string[] = []): number {
   const cases = skills.flatMap((s) => s.cases);
-  if (cases.some((c) => c.verdict === 'REGRESSED' && !c.judge_dependent)
+  if (cases.some((c) => c.deterministic?.verdict === 'REGRESSED' || (c.verdict === 'REGRESSED' && !c.judge_dependent))
     || skills.some((s) => s.trigger?.verdict === 'REGRESSED')) return 1;
-  if (cases.some((c) => c.verdict === 'INCONCLUSIVE')
+  if (cases.some((c) => c.verdict === 'INCONCLUSIVE' || c.deterministic?.verdict === 'INCONCLUSIVE')
     || skipped.length
     || skills.some((s) => s.verdict === 'DEGRADED' || s.trigger?.verdict === 'INCONCLUSIVE' || s.flags.includes('partial'))) return 2;
   return 0;
@@ -71,19 +71,28 @@ export function toMarkdown(r: Report): string {
   const triggers = r.skills.flatMap((s) => s.trigger ? [{ name: s.name, ...s.trigger }] : []);
   if (triggers.length) {
     lines.push('', '## Trigger precision / recall', '',
-      '| Skill | Verdict | Old precision | New precision | Old recall | New recall | P_reg |',
+      '| Skill | Verdict | Old precision | New precision | Old recall | New recall | Max metric P_reg |',
       '| --- | --- | --- | --- | --- | --- | --- |',
       ...triggers.map((t) => `| ${t.name} | ${t.verdict} | ${maybePct(t.old.precision)} | ${maybePct(t.new.precision)} | ${maybePct(t.old.recall)} | ${maybePct(t.new.recall)} | ${t.p_reg.toFixed(2)} |`),
       '',
       '| Skill | Case | Expected trigger | Verdict | Old correct/runs | New correct/runs | P_reg |',
       '| --- | --- | --- | --- | --- | --- | --- |',
       ...triggers.flatMap((t) => t.cases.map((c) => `| ${t.name} | ${c.name} | ${c.expected ? 'yes' : 'no'} | ${c.verdict} | ${c.old.passed}/${c.old.runs} | ${c.new.passed}/${c.new.runs} | ${c.p_reg.toFixed(2)} |`)));
+    lines.push('', '| Skill | Metric | Verdict | P_reg |', '| --- | --- | --- | --- |',
+      ...triggers.flatMap((t) => (['precision', 'recall'] as const).map((kind) => {
+        const m = t[kind];
+        return `| ${t.name} | ${kind} | ${m?.verdict ?? 'n/a'} | ${m ? m.p_reg.toFixed(2) : 'n/a'} |`;
+      })));
   }
   for (const s of r.skills) {
-    const bad = s.cases.filter((c) => c.verdict !== 'UNCHANGED');
+    const bad = s.cases.filter((c) => c.verdict !== 'UNCHANGED' || (c.deterministic && c.deterministic.verdict !== 'UNCHANGED'));
     if (!bad.length) continue;
     lines.push('', `## ${s.name}`, '', '| Case | Verdict | Old | New | P_reg | Judge |', '| --- | --- | --- | --- | --- | --- |',
       ...bad.map((c) => `| ${c.name} | ${c.verdict} | ${c.old.passed}/${c.old.runs} | ${c.new.passed}/${c.new.runs} | ${c.p_reg.toFixed(2)} | ${c.judge_dependent ? 'yes' : 'no'} |`));
+    for (const c of bad) if (c.deterministic && c.judge_dependent) {
+      const d = c.deterministic;
+      lines.push('', `- ${c.name} deterministic assertions: ${d.verdict}, old ${d.old.passed}/${d.old.runs}, new ${d.new.passed}/${d.new.runs}, P_reg ${d.p_reg.toFixed(2)}`);
+    }
     for (const c of bad) for (const e of c.evidence) lines.push('', `- ${c.name} run ${e.run_idx}: failed ${e.failed_assertions.join(', ') || '(none)'}`, '', '  ```', ...e.excerpt.split('\n').map((l) => `  ${l}`), '  ```');
   }
   return lines.join('\n') + '\n';

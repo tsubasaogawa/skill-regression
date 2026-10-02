@@ -1,6 +1,8 @@
 import { expect, it } from 'vitest';
 import { exitCode, isLowPower, skillFlags, toMarkdown, buildReport, type SkillReport } from '../src/reporter/report.js';
 import type { CaseComparison } from '../src/comparator/verdict.js';
+import { compareSkill } from '../src/comparator/verdict.js';
+import type { RunResult } from '../src/runner/types.js';
 
 const c = (verdict: CaseComparison['verdict'], judge = false, errors = 0): CaseComparison =>
   ({ name: 'c', tags: [], verdict, needsMoreRuns: false, judge_dependent: judge, old: { passed: 5, runs: 5, errors: 0 }, new: { passed: 2, runs: 5, errors }, p_reg: 0.97, evidence: [{ run_idx: 0, failed_assertions: ['skill-used'], excerpt: 'out' }] });
@@ -58,4 +60,21 @@ it('flags low power when a total failure could not have been detected', () => {
   expect(s([weak]).flags).toEqual(['low-power']);
   expect(s([{ ...weak, verdict: 'INCONCLUSIVE' }]).flags).toEqual([]);
   expect(s([c('UNCHANGED')]).flags).toEqual([]);
+});
+
+it('exits 1 for deterministic regression in mixed rubric cases and reports rubric-only regression without exit 1', () => {
+  const results = (passed: boolean, deterministic: boolean): RunResult[] =>
+    Array.from({ length: 5 }, (_, run_idx) => ({
+      skill: 's', case: 'mixed', agent: 'claude', model: 'm', run_idx,
+      passed, score: passed ? 1 : 0, triggered: true, latency_ms: 0,
+      judge_dependent: true, deterministic_passed: deterministic,
+    }));
+  const report = (deterministic: boolean) => {
+    const comparison = compareSkill('s', results(true, true), results(false, deterministic));
+    return { ...comparison, flags: skillFlags(comparison, 'cases.yaml'), cases_source: 'cases.yaml' as const, cases_hash: 'h' };
+  };
+  expect(exitCode([report(false)])).toBe(1);
+  expect(exitCode([report(true)])).toBe(0);
+  const r = buildReport([report(false)], { old: [], new: [] }, { oldModel: 'a', newModel: 'b', startedAt: new Date() });
+  expect(toMarkdown(r)).toContain('mixed deterministic assertions: REGRESSED');
 });

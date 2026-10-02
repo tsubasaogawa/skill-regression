@@ -8,6 +8,7 @@ export interface RunResult {
   score: number;
   triggered: boolean;
   judge_dependent: boolean;
+  deterministic_passed?: boolean;
   error?: string;
   failed_assertions?: string[];
   excerpt?: string;

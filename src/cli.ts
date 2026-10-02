@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-import { Command } from 'commander';
+import { Command, CommanderError } from 'commander';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { stringify } from 'yaml';
 import { generateCases } from './cases/generate.js';
-import { hashCases, hashDir } from './cases/hash.js';
-import { listSkills, resolveCases, type SkillCases } from './cases/load.js';
+import { hashCases, hashCaseInputs, hashDir, hashSkillMd } from './cases/hash.js';
+import { listSkills, resolveCases, validateCases, type SkillCases } from './cases/load.js';
 import type { Case } from './cases/types.js';
 import { compareSkill } from './comparator/verdict.js';
 import { DEFAULTS, JUDGE_PROVIDER } from './config/defaults.js';
@@ -19,7 +19,7 @@ import type { RunResult } from './runner/types.js';
 import { cliVersion } from './runner/version.js';
 import { cacheKey, Store } from './store/store.js';
 
-export const program = new Command().name('skilldrift').version('0.1.0');
+export const program = new Command().name('skilldrift').version('0.1.0').exitOverride();
 
 const SIDES = ['old', 'new'] as const;
 type Side = typeof SIDES[number];
@@ -113,18 +113,19 @@ async function compare(opts: CompareOpts): Promise<void> {
   const resolveSkill = async (dir: string, skill: string, generator?: string): Promise<SkillCases> => {
     const sc = resolveCases(dir, skill);
     if (sc.source !== 'generated') return filterCase(sc);
-    const hash = hashDir(sc.dir);
+    const hash = hashSkillMd(sc.dir);
     let cases = store.loadGenerated(skill, hash);
     if (!cases && generator) {
       console.error(`${skill}: generating cases with ${generator}`);
       cases = await generateCases(skill, sc.dir, generator);
       console.error(`${skill}: saved generated cases to ${store.saveGenerated(skill, hash, cases)}`);
     }
-    return filterCase(sc, cases ?? []);
+    return filterCase(sc, cases ? validateCases(cases, sc.dir) : []);
   };
 
   if (opts.dryRun) {
-    const skills = await Promise.all(selectedSkills.map((s) => resolveSkill(opts.skillsDir, s)));
+    const skills = await Promise.all(selectedSkills.map((s) => resolveSkill(opts.skillsDir, s))).catch(inputError);
+    if (opts.case && !skills.some((s) => s.cases.length)) return inputError(`case not found: ${opts.case}`);
     for (const s of skills) console.log(`${s.skill.padEnd(36)} ${String(s.cases.length).padStart(3)} cases (${s.source}${s.source === 'generated' && !s.cases.length ? ', pending' : ''})`);
     console.log(`\n${skills.length} skills, ${skills.reduce((n, s) => n + s.cases.length, 0)} cases`);
     return;
@@ -133,7 +134,16 @@ async function compare(opts: CompareOpts): Promise<void> {
   const config = await resolveCompareConfig(opts, suite, availableSkills, (label) => promptForModel(label, !opts.nonInteractive)).catch(inputError);
   const { oldModel, newModel, runs } = config;
   const runsMax = opts.runsMax == null ? runs : Number(opts.runsMax);
-  if (!Number.isInteger(runsMax) || runsMax < runs) return program.error('--runs-max must be an integer greater than or equal to --runs');
+  if (!Number.isInteger(runsMax) || runsMax < runs) return inputError('--runs-max must be an integer greater than or equal to --runs');
+  if (!Number.isInteger(Number(opts.concurrency)) || Number(opts.concurrency) < 1) return inputError('--concurrency must be a positive integer');
+  if (!['md', 'json', 'both'].includes(opts.format)) return inputError('--format must be md, json or both');
+  const resolvedSkills = await Promise.all(config.skills.map(async (name) => {
+    const sc = await resolveSkill(opts.skillsDir, name);
+    const oldDir = join(opts.oldSkillsDir ?? opts.skillsDir, name);
+    if (!existsSync(join(oldDir, 'SKILL.md'))) throw new Error(`baseline skill not found: ${name}`);
+    return sc;
+  })).catch(inputError);
+  if (opts.case && !resolvedSkills.some((s) => s.cases.length || s.source === 'generated')) return inputError(`case not found: ${opts.case}`);
   const claudeVersion = cliVersion('claude');
   const startedAt = new Date();
   const sides = { old: { model: oldModel, dir: opts.oldSkillsDir ?? opts.skillsDir }, new: { model: newModel, dir: opts.skillsDir } };
@@ -144,13 +154,14 @@ async function compare(opts: CompareOpts): Promise<void> {
 
   for (const name of config.skills) {
     if (config.maxCostUsd !== undefined && spent >= config.maxCostUsd) { skipped.push(name); continue; }
-    const scNew = await resolveSkill(sides.new.dir, name, config.caseGeneratorModel);
+    const pending = resolvedSkills.find((s) => s.skill === name)!;
+    const scNew = pending.source === 'generated' ? await resolveSkill(sides.new.dir, name, config.caseGeneratorModel).catch(inputError) : pending;
     if (!scNew.cases.length) continue;
     const sc: Record<Side, SkillCases> = {
-      old: scNew.source === 'generated' ? filterCase(resolveCases(sides.old.dir, name), scNew.cases) : await resolveSkill(sides.old.dir, name),
+      old: { ...scNew, dir: join(sides.old.dir, name), casesDir: scNew.dir },
       new: scNew,
     };
-    const keyOf = (side: Side) => cacheKey({ skill: name, skillHash: hashDir(sc[side].dir), casesHash: hashCases(sc[side].cases), model: sides[side].model, judge: `${JUDGE_PROVIDER}:${opts.judge}`, runsMax });
+    const keyOf = (side: Side) => cacheKey({ skill: name, skillHash: hashDir(sc[side].dir), casesHash: hashCaseInputs(scNew.cases, scNew.dir), model: sides[side].model, judge: `${JUDGE_PROVIDER}:${opts.judge}`, runsMax });
     const keys: Record<Side, string> = { old: keyOf('old'), new: keyOf('new') };
     const shared = keys.old === keys.new;
     const results: Record<Side, RunResult[]> = { old: [], new: [] };
@@ -214,6 +225,7 @@ async function compare(opts: CompareOpts): Promise<void> {
     reports.push(sr);
   }
 
+  if (opts.case && !reports.length && !skipped.length) return inputError(`case not found: ${opts.case}`);
   if (skipped.length) console.error(`cost cap $${config.maxCostUsd} reached after $${spent.toFixed(2)}; skipped: ${skipped.join(', ')}`);
   const report = buildReport(reports, all, { oldModel, newModel, startedAt, claudeVersion, skipped });
   const out = opts.out ?? join(opts.store, 'reports', 'claude', newModel, startedAt.toISOString().replace(/[:.]/g, '-'));
@@ -250,10 +262,15 @@ program
   .option('--skills-dir <dir>', 'skills directory', DEFAULTS.skillsDir)
   .option('--store <dir>', 'store directory holding generated cases', DEFAULTS.store)
   .action((action: string, skill: string, opts: { skillsDir: string; store: string }) => {
-    if (action !== 'export') program.error(`unknown action: ${action}`);
-    const sc = resolveCases(opts.skillsDir, skill);
-    const cases = sc.source === 'generated' ? new Store(opts.store).loadGenerated(skill, hashDir(sc.dir)) : sc.cases;
-    if (!cases) return program.error(`no generated cases for ${skill}; run compare first`);
+    if (action !== 'export') return inputError(`unknown action: ${action}`);
+    const cases = (() => {
+      try {
+        const sc = resolveCases(opts.skillsDir, skill);
+        const cases = sc.source === 'generated' ? new Store(opts.store).loadGenerated(skill, hashSkillMd(sc.dir)) : sc.cases;
+        return cases ? validateCases(cases, sc.dir) : undefined;
+      } catch (e) { return inputError(e); }
+    })();
+    if (!cases) return inputError(`no generated cases for ${skill}; run compare first`);
     process.stdout.write(stringify(cases));
   });
 
@@ -281,9 +298,9 @@ program
   .option('--all-skills', 'write every skill under --skills-dir explicitly instead of omitting skills')
   .option('--force', 'overwrite an existing file')
   .action(async (opts: { suite: string; baselineModel?: string; skillsDir: string; allSkills?: boolean; force?: boolean }) => {
-    if (existsSync(opts.suite) && !opts.force) return program.error(`${opts.suite} already exists; pass --force to overwrite`);
+    if (existsSync(opts.suite) && !opts.force) return inputError(`${opts.suite} already exists; pass --force to overwrite`);
     const baselineModel = opts.baselineModel ?? await promptForModel('Baseline model').catch(inputError);
-    const skills = opts.allSkills ? listSkills(opts.skillsDir) : [];
+    const skills = (() => { try { return opts.allSkills ? listSkills(opts.skillsDir) : []; } catch (e) { return inputError(e); } })();
     writeFileSync(opts.suite, suiteTemplate({ baselineModel, skills }));
     console.error(`wrote ${opts.suite}`);
   });
@@ -296,6 +313,7 @@ program
   .option('--agent <name>', 'only this agent', 'claude')
   .option('--format <fmt>', 'md | json', 'md')
   .action((opts: { store: string; skill?: string; agent: string; format: string }) => {
+    if (!['md', 'json'].includes(opts.format)) return inputError('--format must be md or json');
     const rows = new Store(opts.store).skillVerdicts()
       .filter((v) => (v.agent ?? 'claude') === opts.agent && (!opts.skill || v.skill === opts.skill));
     if (opts.format === 'json') return console.log(JSON.stringify(rows, null, 2));
@@ -315,9 +333,15 @@ program
   .option('--skills-dir <dir>', 'skills directory', DEFAULTS.skillsDir)
   .option('--fixtures-dir <dir>', 'fixtures root', DEFAULTS.fixturesDir)
   .action((skill: string, opts: { skillsDir: string; fixturesDir: string }) => {
-    console.log(buildFixture(resolveCases(opts.skillsDir, skill), opts.fixturesDir));
+    const sc = (() => { try { return resolveCases(opts.skillsDir, skill); } catch (e) { return inputError(e); } })();
+    console.log(buildFixture(sc, opts.fixturesDir));
   });
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  await program.parseAsync();
+  try {
+    await program.parseAsync();
+  } catch (e) {
+    if (!(e instanceof CommanderError)) throw e;
+    process.exit(e.exitCode === 0 ? 0 : INPUT_ERROR);
+  }
 }

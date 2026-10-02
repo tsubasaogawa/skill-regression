@@ -68,3 +68,40 @@ it('posts a summary to the webhook', async () => {
   expect(body.text).toContain('- a: UNCHANGED');
   expect(body.text).toContain(join(root, 'report', 'report.md'));
 });
+
+it('rejects invalid run limits, unknown cases and malformed cases with exit 3 before execution', async () => {
+  const args = [...base(), '--old', 'o', '--new', 'n'];
+  await expect(program.parseAsync([...args, '--runs', '5', '--runs-max', '4'], { from: 'user' })).rejects.toMatchObject({ exitCode: 3 });
+  await expect(program.parseAsync([...args, '--case', 'missing'], { from: 'user' })).rejects.toMatchObject({ exitCode: 3 });
+  await expect(program.parseAsync([...args, '--concurrency', '0'], { from: 'user' })).rejects.toMatchObject({ exitCode: 3 });
+  await expect(program.parseAsync([...args, '--format', 'invalid'], { from: 'user' })).rejects.toMatchObject({ exitCode: 3 });
+  writeFileSync(join(skillsDir, 'a', 'evals', 'cases.yaml'), 'not a case list');
+  await expect(program.parseAsync(args, { from: 'user' })).rejects.toMatchObject({ exitCode: 3 });
+  expect(runSkill).not.toHaveBeenCalled();
+});
+
+it('uses candidate cases and input contents on both sides even when baseline evals differ', async () => {
+  const oldSkillsDir = join(root, 'old-skills');
+  mkdirSync(join(oldSkillsDir, 'a', 'evals'), { recursive: true });
+  writeFileSync(join(oldSkillsDir, 'a', 'SKILL.md'), '# old a');
+  writeFileSync(join(oldSkillsDir, 'a', 'evals', 'cases.yaml'), stringify([
+    { name: 'c', prompt: 'old prompt', tags: [], files: [], assertions: [] },
+  ]));
+  writeFileSync(join(skillsDir, 'a', 'evals', 'input.txt'), 'candidate input');
+  writeFileSync(join(skillsDir, 'a', 'evals', 'cases.yaml'), stringify([
+    { name: 'c', prompt: 'new prompt', tags: ['quality'], files: ['evals/input.txt'], assertions: [] },
+  ]));
+  const inputs: string[] = [];
+  const implementation = vi.mocked(runSkill).getMockImplementation()!;
+  vi.mocked(runSkill).mockImplementation(async (sc, opts, version) => {
+    inputs.push(readFileSync(join(opts.workingDir, 'evals', 'input.txt'), 'utf8'));
+    return implementation(sc, opts, version);
+  });
+  await program.parseAsync([...base(), '--old', 'o', '--new', 'n', '--skill', 'a', '--old-skills-dir', oldSkillsDir], { from: 'user' });
+  expect(vi.mocked(runSkill).mock.calls.map(([sc]) => sc.cases[0].prompt)).toEqual(['new prompt', 'new prompt']);
+  expect(inputs).toEqual(['candidate input', 'candidate input']);
+  writeFileSync(join(skillsDir, 'a', 'evals', 'input.txt'), 'changed candidate input');
+  await program.parseAsync([...base(), '--old', 'o', '--new', 'n', '--skill', 'a', '--old-skills-dir', oldSkillsDir], { from: 'user' });
+  expect(runSkill).toHaveBeenCalledTimes(4);
+  expect(inputs.slice(2)).toEqual(['changed candidate input', 'changed candidate input']);
+});

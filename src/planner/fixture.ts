@@ -13,7 +13,7 @@ export function buildFixture(sc: SkillCases, fixturesRoot: string): string {
   cpSync(sc.dir, join(root, '.agents', 'skills', sc.skill), skipEvals);
   for (const f of new Set(sc.cases.flatMap((c) => c.files))) {
     mkdirSync(dirname(join(root, f)), { recursive: true });
-    cpSync(join(sc.dir, f), join(root, f));
+    cpSync(join(sc.casesDir ?? sc.dir, f), join(root, f));
   }
   cpSync(ASSETS_DIR, join(root, 'assets'), { recursive: true });
   mkdirSync(join(root, 'tmp'));

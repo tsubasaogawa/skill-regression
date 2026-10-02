@@ -5,7 +5,7 @@ import { parse } from 'yaml';
 import { afterEach, expect, it, vi } from 'vitest';
 import { generateCases, toCases, type GeneratedItem } from '../src/cases/generate.js';
 import type { Case } from '../src/cases/types.js';
-import { hashDir } from '../src/cases/hash.js';
+import { hashSkillMd } from '../src/cases/hash.js';
 import { program } from '../src/cli.js';
 import { runSkill } from '../src/runner/promptfoo.js';
 import type { RunResult } from '../src/runner/types.js';
@@ -64,7 +64,7 @@ it('generates once per skill hash, stores the cases, and shares them between old
   await program.parseAsync(args, { from: 'user' });
 
   expect(vi.mocked(generateCases).mock.calls).toEqual([['demo', join(skillsDir, 'demo'), 'gen-model']]);
-  const stored = join(storeDir, 'generated', 'demo', `${hashDir(join(skillsDir, 'demo'))}.yaml`);
+  const stored = join(storeDir, 'generated', 'demo', `${hashSkillMd(join(skillsDir, 'demo'))}.yaml`);
   expect(existsSync(stored)).toBe(true);
   expect(parse(readFileSync(stored, 'utf8')) as Case[]).toEqual(generated);
   expect(vi.mocked(runSkill).mock.calls.map(([sc, o]) => [o.models[0], sc.cases.map((c) => c.name)])).toEqual([
@@ -75,6 +75,7 @@ it('generates once per skill hash, stores the cases, and shares them between old
   expect(report.skills[0].cases_source).toBe('generated');
   expect(report.skills[0].flags).toContain('generated-cases');
 
+  writeFileSync(join(skillsDir, 'demo', 'helper.py'), 'changed helper');
   await program.parseAsync([...args, '--no-cache'], { from: 'user' });
   expect(vi.mocked(generateCases)).toHaveBeenCalledTimes(1);
 
@@ -82,4 +83,8 @@ it('generates once per skill hash, stores the cases, and shares them between old
   vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => { out.push(String(chunk)); return true; });
   await program.parseAsync(['cases', 'export', 'demo', '--skills-dir', skillsDir, '--store', storeDir], { from: 'user' });
   expect(parse(out.join('')) as Case[]).toEqual(generated);
+
+  writeFileSync(join(skillsDir, 'demo', 'SKILL.md'), '# Changed Skill');
+  await program.parseAsync(args, { from: 'user' });
+  expect(generateCases).toHaveBeenCalledTimes(2);
 });

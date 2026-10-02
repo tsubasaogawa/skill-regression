@@ -42,14 +42,16 @@ skilldrift cases export my-skill > ~/.claude/skills/my-skill/evals/cases.yaml
 | `--old` / `--new` | 旧 / 新モデル。`--old` 省略時は suite.yaml の `baseline_model` |
 | `--skill`, `--case` | 対象を絞る |
 | `--runs`, `--runs-max` | ケースあたりの反復数と、判定が曖昧なときの追加反復の上限 |
-| `--old-skills-dir` | 旧側だけ別の Skill ディレクトリを使う (SKILL.md 修正前後の比較に) |
+| `--old-skills-dir` | 旧側だけ別の Skill ディレクトリを使う。ケースと入力ファイルは新側のものを両側で共有する (SKILL.md 修正前後の比較に) |
 | `--aggregate-drop-pt` | 集計合格率がこれ以上 (0〜1) 下がったら DEGRADED |
 | `--max-cost-usd` | 実績コストが上限に達したら以降の Skill を開始しない |
 | `--webhook` | Slack Incoming Webhook 互換の URL に要約を POST |
 | `--non-interactive` | 対話しない。必須項目が無ければ終了コード 3 |
 | `--no-cache` | 同じ鍵の結果があっても再実行する |
 
-旧モデルの結果は `hash(Skill ディレクトリ) + hash(ケース) + モデル + judge + runs-max` を鍵にキャッシュされ、Skill もケースも変わらなければ 2 回目以降は新モデルだけを実行する。
+実行結果は `Skill 名 + hash(Skill ディレクトリ) + hash(ケースと入力ファイル) + モデル + judge + runs-max` を鍵にキャッシュする。Skill ディレクトリのハッシュからは `evals/` を除くが、ケースが参照する入力ファイルの内容はケース側のハッシュに含める。旧モデルの条件が変わらなければ、別の新モデルとの比較では旧モデルの結果を再利用する。新モデル側も同じ条件なら再利用する。
+
+キャッシュ形式はバージョン管理し、旧形式の実行結果は再利用しない。
 
 ## suite.yaml
 
@@ -85,7 +87,7 @@ Skill ごとに次の順でケースを決める。
       value: ピカブー
 ```
 
-`trigger` / `no-trigger` タグのケースからは発火の precision / recall も算出し、その回帰も Skill 判定に反映する。prompt や assertion 内の `/tmp` は実行時に `<fixture>/tmp` へ書き換えられる。
+`trigger` / `no-trigger` タグのケースからは発火の precision / recall も算出する。各ケースの発火正誤に加え、precision / recall をそれぞれ Beta 事後分布で比較し、その退行も Skill 判定に反映する。分母が 0 の指標は `n/a` とし、指標自体の比較は行わない。prompt や assertion 内の `/tmp` は実行時に `<fixture>/tmp` へ書き換えられる。
 
 ## 判定と終了コード
 
@@ -97,7 +99,7 @@ Skill ごとに次の順でケースを決める。
 | IMPROVED | P_reg <= 0.05 のケースがある |
 | UNCHANGED | 上記以外 |
 
-終了コードは 0 = 退行無し、1 = 決定的 assertion の REGRESSED あり、2 = DEGRADED / INCONCLUSIVE / 一部未実行、3 = 入力エラー。`llm_rubric` だけに依存する退行は 1 にせずレポートのみ。
+終了コードは 0 = 退行無し、1 = 決定的 assertion または発火判定の REGRESSED あり、2 = DEGRADED / INCONCLUSIVE / 一部未実行、3 = 入力エラー。`llm_rubric` だけに依存する退行は 1 にせずレポートのみ。同じケースに決定的 assertion と `llm_rubric` がある場合も、決定的 assertion の合格率を別に比較して終了コードに反映する。
 
 フラグ: `generated-cases` (生成ケース)、`judge-dependent` (judge 依存)、`partial` (エラー run あり)、`low-power` (反復が少なく新モデルが全滅しても REGRESSED に届かない)。
 

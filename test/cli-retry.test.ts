@@ -5,7 +5,7 @@ import { stringify } from 'yaml';
 import { afterEach, expect, it, vi } from 'vitest';
 import { resolveCases } from '../src/cases/load.js';
 import type { Case } from '../src/cases/types.js';
-import { hashCases, hashDir } from '../src/cases/hash.js';
+import { hashCaseInputs, hashDir } from '../src/cases/hash.js';
 import { program } from '../src/cli.js';
 import { cacheKey, Store } from '../src/store/store.js';
 import type { RunResult } from '../src/runner/types.js';
@@ -119,7 +119,7 @@ it('reruns only ambiguous cases, caps the last batch, and appends results under 
   const stored = (model: string) => new Store(storeDir).lookup(cacheKey({
     skill: 'demo',
     skillHash: hashDir(sc.dir),
-    casesHash: hashCases(sc.cases),
+    casesHash: hashCaseInputs(sc.cases, sc.dir),
     model,
     judge: `${JUDGE_PROVIDER}:judge-model`,
     runsMax: 12,
@@ -209,4 +209,40 @@ it('reruns a trigger-tagged case when only trigger correctness is ambiguous', as
   };
   expect(report.skills[0].verdict).toBe('REGRESSED');
   expect(report.skills[0].trigger).toMatchObject({ verdict: 'REGRESSED', new: { recall: 0.3 } });
+});
+
+it('reruns all trigger cases when aggregate recall is ambiguous but each case is unchanged', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'skilldrift-cli-recall-'));
+  tempDirs.push(root);
+  const skillsDir = join(root, 'skills');
+  mkdirSync(join(skillsDir, 'demo', 'evals'), { recursive: true });
+  writeFileSync(join(skillsDir, 'demo', 'SKILL.md'), '# demo');
+  writeFileSync(join(skillsDir, 'demo', 'evals', 'cases.yaml'), stringify(
+    ['t1', 't2'].map((name) => ({ name, prompt: name, tags: ['trigger'], files: [], assertions: [] })),
+  ));
+  const suitePath = join(root, 'suite.yaml');
+  writeFileSync(suitePath, 'baseline_model: old\nruns: 5\n');
+  const makeResults = (name: string, model: string, count: number, initial: boolean): RunResult[] =>
+    Array.from({ length: count }, (_, run_idx) => ({
+      skill: 'demo', case: name, agent: 'claude', model, run_idx,
+      passed: true, score: 1, triggered: model === 'old' || (initial && run_idx < 4),
+      judge_dependent: false, latency_ms: 0,
+    }));
+  vi.mocked(runSkill).mockImplementation(async (sc, opts) => ({
+    results: sc.cases.flatMap((c) => makeResults(c.name, opts.models[0], opts.runs, true)), raw: {} as never,
+  }));
+  vi.mocked(runSkillCase).mockImplementation(async (_sc, name, opts) => ({
+    results: makeResults(name, opts.models[0], opts.runs, false), raw: {} as never,
+  }));
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  await program.parseAsync([
+    'compare', '--suite', suitePath, '--skills-dir', skillsDir,
+    '--new', 'new', '--runs-max', '10', '--store', join(root, 'store'),
+    '--fixtures-dir', join(root, 'fixtures'), '--out', join(root, 'report'), '--format', 'json',
+  ], { from: 'user' });
+  expect(vi.mocked(runSkillCase).mock.calls.map(([, name, opts]) => [name, opts.models[0]])).toEqual([
+    ['t1', 'old'], ['t1', 'new'], ['t2', 'old'], ['t2', 'new'],
+  ]);
+  expect(process.exitCode).toBe(1);
 });

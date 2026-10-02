@@ -8,8 +8,9 @@ export type SkillVerdict = CaseVerdict | 'DEGRADED';
 export interface Tally { passed: number; runs: number; errors: number }
 export interface TriggerCaseComparison { name: string; expected: boolean; verdict: CaseVerdict; needsMoreRuns: boolean; old: Tally; new: Tally; p_reg: number }
 export interface TriggerMetrics { precision: number | null; recall: number | null; true_positives: number; false_positives: number; false_negatives: number; true_negatives: number; runs: number; errors: number }
-export interface TriggerComparison { old: TriggerMetrics; new: TriggerMetrics; verdict: SkillVerdict; p_reg: number; cases: TriggerCaseComparison[] }
-export interface CaseComparison { name: string; tags: string[]; verdict: CaseVerdict; needsMoreRuns: boolean; judge_dependent: boolean; old: Tally; new: Tally; p_reg: number; evidence: Evidence[] }
+export interface MetricComparison { old: Tally; new: Tally; verdict: CaseVerdict; needsMoreRuns: boolean; p_reg: number }
+export interface TriggerComparison { old: TriggerMetrics; new: TriggerMetrics; verdict: SkillVerdict; p_reg: number; cases: TriggerCaseComparison[]; precision?: MetricComparison | null; recall?: MetricComparison | null }
+export interface CaseComparison { name: string; tags: string[]; verdict: CaseVerdict; needsMoreRuns: boolean; judge_dependent: boolean; old: Tally; new: Tally; p_reg: number; evidence: Evidence[]; deterministic?: MetricComparison }
 export interface Evidence { run_idx: number; failed_assertions: string[]; excerpt: string }
 export interface SkillComparison { name: string; verdict: SkillVerdict; aggregate: { old_pass_rate: number; new_pass_rate: number }; trigger: TriggerComparison | null; cases: CaseComparison[] }
 
@@ -63,8 +64,16 @@ function triggerMetrics(rs: RunResult[], expectations: Map<string, boolean>): Tr
 
 export function compareCase(name: string, olds: RunResult[], news: RunResult[], tags: string[] = []): CaseComparison {
   const o = tally(olds, (r) => r.passed), n = tally(news, (r) => r.passed);
+  const deterministicOld = tally(olds, (r) => r.deterministic_passed ?? (!r.judge_dependent && r.passed));
+  const deterministicNew = tally(news, (r) => r.deterministic_passed ?? (!r.judge_dependent && r.passed));
+  const hasDeterministic = [...olds, ...news].every((r) => r.error || r.deterministic_passed !== undefined || !r.judge_dependent);
+  const deterministic = hasDeterministic ? { old: deterministicOld, new: deterministicNew, ...judge(deterministicOld, deterministicNew) } : undefined;
+  const overall = judge(o, n);
   return {
-    name, tags, ...judge(o, n),
+    name, tags, ...overall,
+    verdict: worst([overall.verdict, ...(deterministic ? [deterministic.verdict] : [])]) as CaseVerdict,
+    needsMoreRuns: overall.needsMoreRuns || !!deterministic?.needsMoreRuns,
+    ...(deterministic ? { deterministic } : {}),
     judge_dependent: [...olds, ...news].some((r) => r.judge_dependent),
     old: o, new: n,
     evidence: news.filter((r) => !r.error && !r.passed).slice(0, 2).map((r) => ({ run_idx: r.run_idx, failed_assertions: r.failed_assertions ?? [], excerpt: r.excerpt ?? '' })),
@@ -83,12 +92,23 @@ function compareTrigger(names: string[], olds: RunResult[], news: RunResult[], t
     const old = tally(olds.filter((r) => r.case === name), correct), newer = tally(news.filter((r) => r.case === name), correct);
     return { name, expected, ...judge(old, newer), old, new: newer };
   });
-  const total = (side: 'old' | 'new'): Tally => ({
-    passed: cases.reduce((s, c) => s + c[side].passed, 0), runs: cases.reduce((s, c) => s + c[side].runs, 0), errors: 0,
-  });
+  const old = triggerMetrics(olds, expectations), newer = triggerMetrics(news, expectations);
+  const metric = (kind: 'precision' | 'recall'): MetricComparison | null => {
+    const counts = (m: TriggerMetrics): Tally => ({
+      passed: m.true_positives,
+      runs: m.true_positives + (kind === 'precision' ? m.false_positives : m.false_negatives),
+      errors: m.errors,
+    });
+    const o = counts(old), n = counts(newer);
+    // A metric with no observations on either side cannot be compared.
+    return !o.runs || !n.runs ? null : { old: o, new: n, ...judge(o, n) };
+  };
+  const precision = metric('precision'), recall = metric('recall');
+  const metrics = [precision, recall].filter((m): m is MetricComparison => m !== null);
   return {
-    old: triggerMetrics(olds, expectations), new: triggerMetrics(news, expectations),
-    verdict: worst(cases.map((c) => c.verdict)), p_reg: judge(total('old'), total('new')).p_reg, cases,
+    old, new: newer, precision, recall,
+    verdict: worst([...cases.map((c) => c.verdict), ...metrics.map((m) => m.verdict)]),
+    p_reg: metrics.length ? Math.max(...metrics.map((m) => m.p_reg)) : 0.5, cases,
   };
 }
 
@@ -98,6 +118,9 @@ export function compareSkill(skill: string, olds: RunResult[], news: RunResult[]
   const cases = names.map((name) => {
     const comparison = compareCase(name, olds.filter((r) => r.case === name), news.filter((r) => r.case === name), tagsOf(name));
     comparison.needsMoreRuns ||= trigger?.cases.find((c) => c.name === name)?.needsMoreRuns ?? false;
+    if (triggerExpectation(name, tagsOf(name)) !== undefined) {
+      comparison.needsMoreRuns ||= !!trigger?.precision?.needsMoreRuns || !!trigger?.recall?.needsMoreRuns;
+    }
     return comparison;
   });
   const rate = (side: 'old' | 'new') => {

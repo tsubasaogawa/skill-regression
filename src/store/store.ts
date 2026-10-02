@@ -15,7 +15,7 @@ export interface KeyParts {
 }
 
 export function cacheKey(p: KeyParts): string {
-  return createHash('sha256').update(JSON.stringify([p.skill, p.skillHash, p.casesHash, p.model, p.judge, p.runsMax])).digest('hex').slice(0, 16);
+  return createHash('sha256').update(JSON.stringify(['v2', p.skill, p.skillHash, p.casesHash, p.model, p.judge, p.runsMax])).digest('hex').slice(0, 16);
 }
 
 export interface StoredResult extends RunResult { key: string; ts: string }
