@@ -216,7 +216,7 @@ assertion 対応:
 | 9 | `--max-cost-usd`、`--non-interactive` (exit 3)、`--webhook`、`--agent` | `--agent` 以外は実装・CLI 統合テスト済み | `--agent codex` はフェーズ 2。§16 参照 |
 | 10 | `/tmp` 出力の fixture 内パスへの書き換え | 実装・単体テスト済み | Runner が prompt と assertion の `/tmp` を `<fixture>/tmp` に書き換える。§17 参照 |
 | 11 | `low-power` フラグ | 実装・単体テスト済み | 閾値パラメータ無し。「新モデルが 0 件合格でも P_reg < 0.95」なら検出力不足。§18 参照 |
-| 12 | README.md、LICENSE (MIT) | 未作成 | |
+| 12 | README.md、LICENSE (MIT) | 作成済み | |
 | 13 | `raw/` ディレクトリの削除 | 順 4 の残骸。`.skilldrift/raw/` に移行済み | 手動で `rm -rf raw/` |
 
 設計との差分で意図的に残しているもの:
