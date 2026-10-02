@@ -195,6 +195,8 @@ async function compare(opts: CompareOpts): Promise<void> {
       const cached = opts.cache ? store.lookup(keys[side]) : [];
       if (cached.length) {
         console.error(`${name}: ${side} (${sides[side].model}) cached (${keys[side]})`);
+        const versions = [...new Set(cached.map((r) => r.claude_version).filter(Boolean))];
+        if (claudeVersion && versions.some((v) => v !== claudeVersion)) console.error(`${name}: ${side} cache was recorded with claude ${versions.join(', ')} but current is ${claudeVersion}; pass --no-cache to rerun`);
         results[side] = cached;
       }
       await ensureRuns(side, runs);

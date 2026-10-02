@@ -17,7 +17,8 @@
 ## 必要なもの
 
 - Node.js 22.22 以上、pnpm
-- Claude Code
+- Claude Code (Skill の実行とケース生成はログインで動く)
+- `llm_rubric` assertion を使う場合は環境変数 `ANTHROPIC_API_KEY` (judge は Anthropic Messages API を直接呼ぶ。生成ケースは必ず `llm_rubric` を含む)
 
 ```sh
 pnpx skilldrift --help
