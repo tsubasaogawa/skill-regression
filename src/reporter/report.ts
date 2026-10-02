@@ -7,7 +7,14 @@ import type { RunResult } from '../runner/types.js';
 const require = createRequire(import.meta.url);
 export const VERSION: string = require('../../package.json').version;
 
-export type Flag = 'generated-cases' | 'judge-dependent' | 'low-power' | 'partial';
+export type Flag = 'generated-cases' | 'judge-dependent' | 'low-power' | 'has-errors';
+
+const FLAG_LEGEND: Record<Flag, string> = {
+  'generated-cases': 'cases came from the generator, so confidence is lower than hand-written cases',
+  'judge-dependent': 'a verdict rests on llm_rubric and is report-only',
+  'low-power': 'too few runs: UNCHANGED does not mean no regression',
+  'has-errors': 'some runs errored and were excluded',
+};
 export interface SkillReport extends SkillComparison { flags: Flag[]; cases_source: CaseSource; cases_hash: string }
 export interface Report {
   skilldrift_version: string; promptfoo_version: string; agent: string;
@@ -27,18 +34,18 @@ export function skillFlags(sc: SkillComparison, source: CaseSource): Flag[] {
   if (source === 'generated') f.push('generated-cases');
   if (sc.cases.some((c) => c.judge_dependent)) f.push('judge-dependent');
   if (sc.cases.some((c) => c.verdict === 'UNCHANGED' && isLowPower(c))) f.push('low-power');
-  if (sc.cases.some((c) => c.old.errors + c.new.errors > 0)) f.push('partial');
+  if (sc.cases.some((c) => c.old.errors + c.new.errors > 0)) f.push('has-errors');
   return f;
 }
 
-/** 0 = no regression, 1 = regression on a deterministic case, 2 = degraded, inconclusive, partial or skipped. Judge-dependent regressions are report-only. */
+/** 0 = no regression, 1 = regression on a deterministic case, 2 = degraded, inconclusive, has-errors or skipped. Judge-dependent regressions are report-only. */
 export function exitCode(skills: SkillReport[], skipped: string[] = []): number {
   const cases = skills.flatMap((s) => s.cases);
   if (cases.some((c) => c.deterministic?.verdict === 'REGRESSED' || (c.verdict === 'REGRESSED' && !c.judge_dependent))
     || skills.some((s) => s.trigger?.verdict === 'REGRESSED')) return 1;
   if (cases.some((c) => c.verdict === 'INCONCLUSIVE' || c.deterministic?.verdict === 'INCONCLUSIVE')
     || skipped.length
-    || skills.some((s) => s.verdict === 'DEGRADED' || s.trigger?.verdict === 'INCONCLUSIVE' || s.flags.includes('partial'))) return 2;
+    || skills.some((s) => s.verdict === 'DEGRADED' || s.trigger?.verdict === 'INCONCLUSIVE' || s.flags.includes('has-errors'))) return 2;
   return 0;
 }
 
@@ -68,6 +75,8 @@ export function toMarkdown(r: Report): string {
     '| Skill | Verdict | Old | New | Flags |', '| --- | --- | --- | --- | --- |',
     ...r.skills.map((s) => `| ${s.name} | ${s.verdict} | ${pct(s.aggregate.old_pass_rate)} | ${pct(s.aggregate.new_pass_rate)} | ${s.flags.join(', ')} |`),
   ];
+  const used = (Object.keys(FLAG_LEGEND) as Flag[]).filter((f) => r.skills.some((s) => s.flags.includes(f)));
+  if (used.length) lines.push('', ...used.map((f) => `- \`${f}\`: ${FLAG_LEGEND[f]}`));
   const triggers = r.skills.flatMap((s) => s.trigger ? [{ name: s.name, ...s.trigger }] : []);
   if (triggers.length) {
     lines.push('', '## Trigger precision / recall', '',
