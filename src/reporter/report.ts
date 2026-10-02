@@ -41,15 +41,16 @@ export function exitCode(skills: SkillReport[], skipped: string[] = []): number 
   return 0;
 }
 
+export const totalCost = (rs: RunResult[]): number => rs.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
+
 export function buildReport(skills: SkillReport[], results: { old: RunResult[]; new: RunResult[] }, o: { oldModel: string; newModel: string; startedAt: Date; claudeVersion?: string; skipped?: string[] }): Report {
-  const cost = (rs: RunResult[]) => rs.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
   return {
     skilldrift_version: require('../../package.json').version,
     promptfoo_version: require(require.resolve('promptfoo').replace(/dist[\/].*$/, 'package.json')).version,
     agent: 'claude', old_model: o.oldModel, new_model: o.newModel,
     ...(o.claudeVersion ? { claude_version: o.claudeVersion } : {}),
     started_at: o.startedAt.toISOString(), finished_at: new Date().toISOString(),
-    cost_usd: { old: cost(results.old), new: cost(results.new), judge: null },
+    cost_usd: { old: totalCost(results.old), new: totalCost(results.new), judge: null },
     exit_code: exitCode(skills, o.skipped), skills,
     ...(o.skipped?.length ? { skipped_skills: o.skipped } : {}),
   };
@@ -67,16 +68,16 @@ export function toMarkdown(r: Report): string {
     '| Skill | Verdict | Old | New | Flags |', '| --- | --- | --- | --- | --- |',
     ...r.skills.map((s) => `| ${s.name} | ${s.verdict} | ${pct(s.aggregate.old_pass_rate)} | ${pct(s.aggregate.new_pass_rate)} | ${s.flags.join(', ')} |`),
   ];
-  const triggerSkills = r.skills.filter((s) => s.trigger);
-  if (triggerSkills.length) {
+  const triggers = r.skills.flatMap((s) => s.trigger ? [{ name: s.name, ...s.trigger }] : []);
+  if (triggers.length) {
     lines.push('', '## Trigger precision / recall', '',
       '| Skill | Verdict | Old precision | New precision | Old recall | New recall | P_reg |',
       '| --- | --- | --- | --- | --- | --- | --- |',
-      ...triggerSkills.map((s) => `| ${s.name} | ${s.trigger!.verdict} | ${maybePct(s.trigger!.old.precision)} | ${maybePct(s.trigger!.new.precision)} | ${maybePct(s.trigger!.old.recall)} | ${maybePct(s.trigger!.new.recall)} | ${s.trigger!.p_reg.toFixed(2)} |`),
+      ...triggers.map((t) => `| ${t.name} | ${t.verdict} | ${maybePct(t.old.precision)} | ${maybePct(t.new.precision)} | ${maybePct(t.old.recall)} | ${maybePct(t.new.recall)} | ${t.p_reg.toFixed(2)} |`),
       '',
       '| Skill | Case | Expected trigger | Verdict | Old correct/runs | New correct/runs | P_reg |',
       '| --- | --- | --- | --- | --- | --- | --- |',
-      ...triggerSkills.flatMap((s) => s.trigger!.cases.map((c) => `| ${s.name} | ${c.name} | ${c.expected ? 'yes' : 'no'} | ${c.verdict} | ${c.old.passed}/${c.old.runs} | ${c.new.passed}/${c.new.runs} | ${c.p_reg.toFixed(2)} |`)));
+      ...triggers.flatMap((t) => t.cases.map((c) => `| ${t.name} | ${c.name} | ${c.expected ? 'yes' : 'no'} | ${c.verdict} | ${c.old.passed}/${c.old.runs} | ${c.new.passed}/${c.new.runs} | ${c.p_reg.toFixed(2)} |`)));
   }
   for (const s of r.skills) {
     const bad = s.cases.filter((c) => c.verdict !== 'UNCHANGED');

@@ -11,15 +11,11 @@ export interface KeyParts {
   casesHash: string;
   model: string;
   judge: string;
-  runsMax?: number;
-  /** @deprecated Use runsMax. Kept for compatibility with existing callers. */
-  runs?: number;
+  runsMax: number;
 }
 
 export function cacheKey(p: KeyParts): string {
-  const runsMax = p.runsMax ?? p.runs;
-  if (runsMax == null) throw new Error('cache key requires runsMax');
-  return createHash('sha256').update(JSON.stringify([p.skill, p.skillHash, p.casesHash, p.model, p.judge, runsMax])).digest('hex').slice(0, 16);
+  return createHash('sha256').update(JSON.stringify([p.skill, p.skillHash, p.casesHash, p.model, p.judge, p.runsMax])).digest('hex').slice(0, 16);
 }
 
 export interface StoredResult extends RunResult { key: string; ts: string }
@@ -32,8 +28,14 @@ function readJsonl<T>(path: string): T[] {
   return existsSync(path) ? readFileSync(path, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as T) : [];
 }
 
+function writeFile(path: string, content: string): string {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content);
+  return path;
+}
+
 export class Store {
-  constructor(readonly dir: string) { mkdirSync(join(dir, 'raw'), { recursive: true }); }
+  constructor(readonly dir: string) { mkdirSync(dir, { recursive: true }); }
 
   lookup(key: string): RunResult[] {
     return readJsonl<StoredResult>(join(this.dir, 'results.jsonl')).filter((r) => r.key === key).map(({ key: _k, ts: _t, ...r }) => r);
@@ -53,7 +55,7 @@ export class Store {
     appendFileSync(join(this.dir, 'verdicts.jsonl'), JSON.stringify({ ...v, ts: new Date().toISOString() }) + '\n');
   }
 
-  generatedPath(skill: string, skillHash: string): string {
+  private generatedPath(skill: string, skillHash: string): string {
     return join(this.dir, 'generated', skill, `${skillHash}.yaml`);
   }
 
@@ -63,15 +65,10 @@ export class Store {
   }
 
   saveGenerated(skill: string, skillHash: string, cases: Case[]): string {
-    const p = this.generatedPath(skill, skillHash);
-    mkdirSync(dirname(p), { recursive: true });
-    writeFileSync(p, stringify(cases));
-    return p;
+    return writeFile(this.generatedPath(skill, skillHash), stringify(cases));
   }
 
   saveRaw(skill: string, raw: unknown): string {
-    const p = join(this.dir, 'raw', `${skill}-${Date.now()}.json`);
-    writeFileSync(p, JSON.stringify(raw, null, 2));
-    return p;
+    return writeFile(join(this.dir, 'raw', `${skill}-${Date.now()}.json`), JSON.stringify(raw, null, 2));
   }
 }

@@ -13,12 +13,11 @@ export interface RunOptions {
   onProgress?: (completed: number, total: number) => void;
 }
 
-export function requiresJudge(sc: SkillCases): boolean {
-  return sc.cases.some((c) => c.assertions.some((a) => a.type === 'llm_rubric'));
-}
+export interface RunOutput { results: RunResult[]; raw: EvaluateSummaryV3 }
 
 export function assertJudgeApiKey(sc: SkillCases): void {
-  if (requiresJudge(sc) && !process.env.ANTHROPIC_API_KEY) {
+  const needsJudge = sc.cases.some((c) => c.assertions.some((a) => a.type === 'llm_rubric'));
+  if (needsJudge && !process.env.ANTHROPIC_API_KEY) {
     throw new Error('ANTHROPIC_API_KEY is required for llm_rubric assertions using the Anthropic Messages judge');
   }
 }
@@ -41,10 +40,12 @@ export function toAssertion(a: Assertion, skill: string, workingDir: string) {
 }
 
 export function toTestSuite(sc: SkillCases, o: RunOptions): EvaluateTestSuite {
-  const agentSdk = (model: string, config: object) => ({ id: 'anthropic:claude-agent-sdk', label: `claude/${model}`, config: { model, apiKeyRequired: false, ...config } });
   return {
     prompts: ['{{prompt}}'],
-    providers: o.models.map((m) => agentSdk(m, { working_dir: o.workingDir, setting_sources: ['project'], skills: [sc.skill], permission_mode: 'bypassPermissions', allow_dangerously_skip_permissions: true, allow_all_tools: true })),
+    providers: o.models.map((model) => ({
+      id: 'anthropic:claude-agent-sdk', label: `claude/${model}`,
+      config: { model, apiKeyRequired: false, working_dir: o.workingDir, setting_sources: ['project'], skills: [sc.skill], permission_mode: 'bypassPermissions', allow_dangerously_skip_permissions: true, allow_all_tools: true },
+    })),
     defaultTest: { options: { provider: `${JUDGE_PROVIDER}:${o.judgeModel}` } },
     tests: sc.cases.map((c) => ({
       description: c.name,
@@ -80,7 +81,7 @@ export function normalize(results: EvaluateResult[], skill: string, claudeVersio
   });
 }
 
-async function runSuite(sc: SkillCases, o: RunOptions, claudeVersion?: string): Promise<{ results: RunResult[]; raw: EvaluateSummaryV3 }> {
+export async function runSkill(sc: SkillCases, o: RunOptions, claudeVersion?: string): Promise<RunOutput> {
   assertJudgeApiKey(sc);
   const evalRecord = await evaluate(toTestSuite(sc, o), {
     repeat: o.runs, cache: false, maxConcurrency: o.maxConcurrency ?? 2, silent: true, showProgressBar: false,
@@ -90,12 +91,8 @@ async function runSuite(sc: SkillCases, o: RunOptions, claudeVersion?: string): 
   return { results: normalize(raw.results, sc.skill, claudeVersion), raw };
 }
 
-export function runSkill(sc: SkillCases, o: RunOptions, claudeVersion?: string): Promise<{ results: RunResult[]; raw: EvaluateSummaryV3 }> {
-  return runSuite(sc, o, claudeVersion);
-}
-
-export async function runSkillCase(sc: SkillCases, caseName: string, o: RunOptions, claudeVersion?: string): Promise<{ results: RunResult[]; raw: EvaluateSummaryV3 }> {
+export function runSkillCase(sc: SkillCases, caseName: string, o: RunOptions, claudeVersion?: string): Promise<RunOutput> {
   const testCase = sc.cases.find((c) => c.name === caseName);
   if (!testCase) throw new Error(`case not found: ${sc.skill}/${caseName}`);
-  return runSuite({ ...sc, cases: [testCase] }, o, claudeVersion);
+  return runSkill({ ...sc, cases: [testCase] }, o, claudeVersion);
 }

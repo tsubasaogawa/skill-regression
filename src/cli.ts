@@ -1,35 +1,35 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import { fileURLToPath } from 'node:url';
 import { stringify } from 'yaml';
-import { listSkills, resolveCases, type SkillCases } from './cases/load.js';
 import { generateCases } from './cases/generate.js';
+import { hashCases, hashDir } from './cases/hash.js';
+import { listSkills, resolveCases, type SkillCases } from './cases/load.js';
 import type { Case } from './cases/types.js';
+import { compareSkill } from './comparator/verdict.js';
 import { DEFAULTS, JUDGE_PROVIDER } from './config/defaults.js';
 import { readSuiteConfig, resolveCompareConfig, selectSkills } from './config/suite.js';
 import { buildFixture } from './planner/fixture.js';
-import { runSkill, runSkillCase } from './runner/promptfoo.js';
-import { compareSkill } from './comparator/verdict.js';
-import { hashCases, hashDir } from './cases/hash.js';
-import { cacheKey, Store } from './store/store.js';
-import { buildReport, skillFlags, toMarkdown, type Report, type SkillReport } from './reporter/report.js';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { cliVersion } from './runner/version.js';
+import { buildReport, skillFlags, toMarkdown, totalCost, type Report, type SkillReport } from './reporter/report.js';
+import { runSkill, runSkillCase, type RunOptions } from './runner/promptfoo.js';
 import type { RunResult } from './runner/types.js';
-import { fileURLToPath } from 'node:url';
+import { cliVersion } from './runner/version.js';
+import { cacheKey, Store } from './store/store.js';
 
 export const program = new Command().name('skilldrift').version('0.1.0');
-type Side = 'old' | 'new';
+
+const SIDES = ['old', 'new'] as const;
+type Side = typeof SIDES[number];
 
 const INPUT_ERROR = 3;
 const inputError = (e: unknown): never => program.error(e instanceof Error ? e.message : String(e), { exitCode: INPUT_ERROR });
+const MODEL_HINT: Record<string, string> = { 'Baseline model': 'pass --old or set baseline_model in suite.yaml', 'Candidate model': 'pass --new' };
 
 async function promptForModel(label: string, interactive = true): Promise<string> {
-  if (!interactive || !process.stdin.isTTY || !process.stdout.isTTY) {
-    const guidance = label === 'Baseline model' ? 'pass --old or set baseline_model in suite.yaml' : 'pass --new';
-    throw new Error(`${label} is required; ${guidance}`);
-  }
+  if (!interactive || !process.stdin.isTTY || !process.stdout.isTTY) throw new Error(`${label} is required; ${MODEL_HINT[label]}`);
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
     const answer = (await prompt.question(`${label}: `)).trim();
@@ -40,31 +40,37 @@ async function promptForModel(label: string, interactive = true): Promise<string
   }
 }
 
+/** Smallest run count across the given cases. */
 function countRuns(results: RunResult[], caseNames: string[]): number {
-  if (!caseNames.length) return 0;
-  return Math.min(...caseNames.map((name) => results.filter((r) => r.case === name).length));
+  return caseNames.length ? Math.min(...caseNames.map((name) => results.filter((r) => r.case === name).length)) : 0;
 }
 
+/** First `runs` results of every case. */
 function limitRuns(results: RunResult[], runs: number): RunResult[] {
   const seen = new Map<string, number>();
-  return results.filter((result) => {
-    const count = seen.get(result.case) ?? 0;
-    if (count >= runs) return false;
-    seen.set(result.case, count + 1);
-    return true;
+  return results.filter((r) => {
+    const count = seen.get(r.case) ?? 0;
+    seen.set(r.case, count + 1);
+    return count < runs;
   });
 }
 
+/** Continue run_idx numbering after the results already held for each case. */
 function reindexResults(existing: RunResult[], fresh: RunResult[]): RunResult[] {
   const next = new Map<string, number>();
-  for (const result of existing) {
-    next.set(result.case, Math.max(next.get(result.case) ?? 0, result.run_idx + 1));
-  }
-  return fresh.map((result) => {
-    const run_idx = next.get(result.case) ?? 0;
-    next.set(result.case, run_idx + 1);
-    return { ...result, run_idx };
+  for (const r of existing) next.set(r.case, Math.max(next.get(r.case) ?? 0, r.run_idx + 1));
+  return fresh.map((r) => {
+    const run_idx = next.get(r.case) ?? 0;
+    next.set(r.case, run_idx + 1);
+    return { ...r, run_idx };
   });
+}
+
+interface CompareOpts {
+  suite?: string; skillsDir: string; fixturesDir: string; skill?: string; case?: string;
+  old?: string; new?: string; oldSkillsDir?: string; runs?: string; runsMax?: string;
+  judge: string; caseGenerator?: string; concurrency: string; store: string; aggregateDropPt?: string;
+  cache: boolean; nonInteractive?: boolean; maxCostUsd?: string; webhook?: string; out?: string; format: string; dryRun?: boolean;
 }
 
 program
@@ -92,144 +98,134 @@ program
   .option('--out <dir>', 'report directory (default: <store>/reports/claude/<new-model>/<timestamp>)')
   .option('--format <fmt>', 'md | json | both', DEFAULTS.format)
   .option('--dry-run', 'list skills and resolved cases without running')
-  .action(async (opts: { suite?: string; skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; oldSkillsDir?: string; runs?: string; runsMax?: string; judge: string; caseGenerator?: string; concurrency: string; store: string; aggregateDropPt?: string; cache: boolean; nonInteractive?: boolean; maxCostUsd?: string; webhook?: string; out?: string; format: string; dryRun?: boolean }) => {
-    const { suite, availableSkills, selectedSkills } = (() => {
-      try {
-        const suite = readSuiteConfig(opts.suite ?? DEFAULTS.suitePath, opts.suite === undefined);
-        const availableSkills = listSkills(opts.skillsDir);
-        return { suite, availableSkills, selectedSkills: selectSkills(opts.skill, suite, availableSkills) };
-      } catch (e) { return inputError(e); }
-    })();
-    const store = new Store(opts.store);
-    const filterCase = (sc: SkillCases, cases: Case[] = sc.cases): SkillCases => ({ ...sc, cases: cases.filter((c) => !opts.case || c.name === opts.case) });
-    const resolveSkill = async (dir: string, s: string, generator?: string): Promise<SkillCases> => {
-      const sc = resolveCases(dir, s);
-      if (sc.source !== 'generated') return filterCase(sc);
-      const hash = hashDir(sc.dir);
-      let cases = store.loadGenerated(s, hash);
-      if (!cases && generator) {
-        console.error(`${s}: generating cases with ${generator}`);
-        cases = await generateCases(s, sc.dir, generator);
-        console.error(`${s}: saved generated cases to ${store.saveGenerated(s, hash, cases)}`);
-      }
-      return filterCase(sc, cases ?? []);
+  .action(compare);
+
+async function compare(opts: CompareOpts): Promise<void> {
+  const { suite, availableSkills, selectedSkills } = (() => {
+    try {
+      const suite = readSuiteConfig(opts.suite ?? DEFAULTS.suitePath, opts.suite === undefined);
+      const availableSkills = listSkills(opts.skillsDir);
+      return { suite, availableSkills, selectedSkills: selectSkills(opts.skill, suite, availableSkills) };
+    } catch (e) { return inputError(e); }
+  })();
+  const store = new Store(opts.store);
+  const filterCase = (sc: SkillCases, cases: Case[] = sc.cases): SkillCases => ({ ...sc, cases: cases.filter((c) => !opts.case || c.name === opts.case) });
+  const resolveSkill = async (dir: string, skill: string, generator?: string): Promise<SkillCases> => {
+    const sc = resolveCases(dir, skill);
+    if (sc.source !== 'generated') return filterCase(sc);
+    const hash = hashDir(sc.dir);
+    let cases = store.loadGenerated(skill, hash);
+    if (!cases && generator) {
+      console.error(`${skill}: generating cases with ${generator}`);
+      cases = await generateCases(skill, sc.dir, generator);
+      console.error(`${skill}: saved generated cases to ${store.saveGenerated(skill, hash, cases)}`);
+    }
+    return filterCase(sc, cases ?? []);
+  };
+
+  if (opts.dryRun) {
+    const skills = await Promise.all(selectedSkills.map((s) => resolveSkill(opts.skillsDir, s)));
+    for (const s of skills) console.log(`${s.skill.padEnd(36)} ${String(s.cases.length).padStart(3)} cases (${s.source}${s.source === 'generated' && !s.cases.length ? ', pending' : ''})`);
+    console.log(`\n${skills.length} skills, ${skills.reduce((n, s) => n + s.cases.length, 0)} cases`);
+    return;
+  }
+
+  const config = await resolveCompareConfig(opts, suite, availableSkills, (label) => promptForModel(label, !opts.nonInteractive)).catch(inputError);
+  const { oldModel, newModel, runs } = config;
+  const runsMax = opts.runsMax == null ? runs : Number(opts.runsMax);
+  if (!Number.isInteger(runsMax) || runsMax < runs) return program.error('--runs-max must be an integer greater than or equal to --runs');
+  const claudeVersion = cliVersion('claude');
+  const startedAt = new Date();
+  const sides = { old: { model: oldModel, dir: opts.oldSkillsDir ?? opts.skillsDir }, new: { model: newModel, dir: opts.skillsDir } };
+  const all = { old: [] as RunResult[], new: [] as RunResult[] };
+  const reports: SkillReport[] = [];
+  const skipped: string[] = [];
+  let spent = 0;
+
+  for (const name of config.skills) {
+    if (config.maxCostUsd !== undefined && spent >= config.maxCostUsd) { skipped.push(name); continue; }
+    const scNew = await resolveSkill(sides.new.dir, name, config.caseGeneratorModel);
+    if (!scNew.cases.length) continue;
+    const sc: Record<Side, SkillCases> = {
+      old: scNew.source === 'generated' ? filterCase(resolveCases(sides.old.dir, name), scNew.cases) : await resolveSkill(sides.old.dir, name),
+      new: scNew,
     };
-    if (opts.dryRun) {
-      const skills = await Promise.all(selectedSkills.map((s) => resolveSkill(opts.skillsDir, s)));
-      for (const s of skills) console.log(`${s.skill.padEnd(36)} ${String(s.cases.length).padStart(3)} cases (${s.source}${s.source === 'generated' && !s.cases.length ? ', pending' : ''})`);
-      console.log(`\n${skills.length} skills, ${skills.reduce((n, s) => n + s.cases.length, 0)} cases`);
-      return;
-    }
-    const config = await resolveCompareConfig({
-      old: opts.old, new: opts.new, skill: opts.skill, runs: opts.runs, aggregateDropPt: opts.aggregateDropPt, caseGenerator: opts.caseGenerator, maxCostUsd: opts.maxCostUsd,
-    }, suite, availableSkills, (label) => promptForModel(label, !opts.nonInteractive)).catch(inputError);
-    const names = config.skills;
-    const oldModel = config.oldModel;
-    const newModel = config.newModel;
-    const claudeVersion = cliVersion('claude');
-    const runs = config.runs;
-    const runsMax = opts.runsMax == null ? runs : Number(opts.runsMax);
-    if (!Number.isInteger(runs) || runs < 1) return program.error('--runs must be a positive integer');
-    if (!Number.isInteger(runsMax) || runsMax < runs) return program.error('--runs-max must be an integer greater than or equal to --runs');
-    const startedAt = new Date();
-    const sides = { old: { model: oldModel, dir: opts.oldSkillsDir ?? opts.skillsDir }, new: { model: newModel, dir: opts.skillsDir } } as const;
-    const all = { old: [] as RunResult[], new: [] as RunResult[] };
-    const reports: SkillReport[] = [];
-    const skipped: string[] = [];
-    let spent = 0;
-    for (const name of names) {
-      if (config.maxCostUsd !== undefined && spent >= config.maxCostUsd) { skipped.push(name); continue; }
-      const scNew = await resolveSkill(sides.new.dir, name, config.caseGeneratorModel);
-      if (!scNew.cases.length) continue;
-      const scOld = scNew.source === 'generated' ? filterCase(resolveCases(sides.old.dir, name), scNew.cases) : await resolveSkill(sides.old.dir, name);
-      const scBySide: Record<Side, SkillCases> = { old: scOld, new: scNew };
-      const caseNames = [...new Set([...scOld.cases, ...scNew.cases].map((c) => c.name))];
-      const results = { old: [] as RunResult[], new: [] as RunResult[] };
-      const keys = {} as Record<Side, string>;
-      const runFresh = async (side: Side, sc: SkillCases, repeat: number, caseName?: string) => {
-        const workingDir = resolve(buildFixture(sc, opts.fixturesDir));
-        const label = caseName ? `${name} ${side} ${caseName}` : `${name} ${side}`;
-        const fresh = caseName
-          ? await runSkillCase(sc, caseName, {
-            models: [sides[side].model], runs: repeat, judgeModel: opts.judge, workingDir, maxConcurrency: Number(opts.concurrency),
-            onProgress: (c, t) => console.error(`${label}: ${c}/${t}`),
-          }, claudeVersion)
-          : await runSkill(sc, {
-            models: [sides[side].model], runs: repeat, judgeModel: opts.judge, workingDir, maxConcurrency: Number(opts.concurrency),
-            onProgress: (c, t) => console.error(`${label}: ${c}/${t}`),
-          }, claudeVersion);
-        const appended = reindexResults(results[side], fresh.results);
-        spent += appended.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
-        store.saveRaw(name, fresh.raw);
-        store.appendResults(keys[side], appended);
-        results[side].push(...appended);
+    const keyOf = (side: Side) => cacheKey({ skill: name, skillHash: hashDir(sc[side].dir), casesHash: hashCases(sc[side].cases), model: sides[side].model, judge: `${JUDGE_PROVIDER}:${opts.judge}`, runsMax });
+    const keys: Record<Side, string> = { old: keyOf('old'), new: keyOf('new') };
+    const shared = keys.old === keys.new;
+    const results: Record<Side, RunResult[]> = { old: [], new: [] };
+
+    const runFresh = async (side: Side, repeat: number, caseName?: string) => {
+      const label = [name, side, caseName].filter(Boolean).join(' ');
+      const o: RunOptions = {
+        models: [sides[side].model], runs: repeat, judgeModel: opts.judge, workingDir: resolve(buildFixture(sc[side], opts.fixturesDir)),
+        maxConcurrency: Number(opts.concurrency), onProgress: (c, t) => console.error(`${label}: ${c}/${t}`),
       };
+      const fresh = caseName ? await runSkillCase(sc[side], caseName, o, claudeVersion) : await runSkill(sc[side], o, claudeVersion);
+      const appended = reindexResults(results[side], fresh.results);
+      spent += totalCost(appended);
+      store.saveRaw(name, fresh.raw);
+      store.appendResults(keys[side], appended);
+      results[side].push(...appended);
+    };
+    const ensureRuns = async (side: Side, target: number, caseName?: string) => {
+      const needed = target - countRuns(results[side], caseName ? [caseName] : sc[side].cases.map((c) => c.name));
+      if (needed > 0) await runFresh(side, needed, caseName);
+    };
 
-      for (const side of ['old', 'new'] as const) {
-        const sc = scBySide[side];
-        const key = cacheKey({ skill: name, skillHash: hashDir(sc.dir), casesHash: hashCases(sc.cases), model: sides[side].model, judge: `${JUDGE_PROVIDER}:${opts.judge}`, runsMax });
-        keys[side] = key;
-        const cached = opts.cache ? store.lookup(key) : [];
-        if (side === 'new' && key === keys.old) {
-          results.new = results.old;
-          console.error(`${name}: new side shares the old side results (${key})`);
-          continue;
-        }
-        if (cached.length) {
-          console.error(`${name}: ${side} (${sides[side].model}) cached (${key})`);
-          results[side] = cached;
-        }
-        const needed = Math.max(0, runs - countRuns(results[side], sc.cases.map((c) => c.name)));
-        if (needed) await runFresh(side, sc, needed);
+    for (const side of SIDES) {
+      if (side === 'new' && shared) {
+        results.new = results.old;
+        console.error(`${name}: new side shares the old side results (${keys.new})`);
+        continue;
       }
-
-      const tagsOf = (c: string) => scNew.cases.find((x) => x.name === c)?.tags ?? [];
-      let totalRuns = Math.min(runsMax, countRuns(results.old, caseNames), countRuns(results.new, caseNames));
-      const compareCurrent = () => compareSkill(
-        name,
-        totalRuns ? limitRuns(results.old, totalRuns) : results.old,
-        totalRuns ? limitRuns(results.new, totalRuns) : results.new,
-        tagsOf,
-        config.aggregateDropPt,
-      );
-      let comparison = compareCurrent();
-      while (totalRuns < runsMax) {
-        const ambiguousCases = comparison.cases.filter((c) => c.needsMoreRuns).map((c) => c.name);
-        if (!ambiguousCases.length) break;
-        const batchRuns = Math.min(runs, runsMax - totalRuns);
-        const targetRuns = totalRuns + batchRuns;
-        for (const caseName of ambiguousCases) {
-          for (const side of ['old', 'new'] as const) {
-            if (side === 'new' && keys.new === keys.old) continue;
-            const currentRuns = results[side].filter((r) => r.case === caseName).length;
-            const needed = Math.max(0, targetRuns - currentRuns);
-            if (needed) await runFresh(side, scBySide[side], needed, caseName);
-          }
-        }
-        totalRuns = targetRuns;
-        comparison = compareCurrent();
+      const cached = opts.cache ? store.lookup(keys[side]) : [];
+      if (cached.length) {
+        console.error(`${name}: ${side} (${sides[side].model}) cached (${keys[side]})`);
+        results[side] = cached;
       }
-      const sr: SkillReport = { ...comparison, flags: [], cases_source: scNew.source, cases_hash: hashCases(scNew.cases) };
-      sr.flags = skillFlags(sr, scNew.source);
-      const meta = { skill: name, agent: 'claude', old_model: oldModel, new_model: newModel };
-      for (const c of sr.cases) store.appendVerdict({ ...meta, case: c.name, ...c });
-      store.appendVerdict({ ...meta, case: null, verdict: sr.verdict, flags: sr.flags, aggregate: sr.aggregate, trigger: sr.trigger, keys });
-      all.old.push(...results.old);
-      all.new.push(...results.new);
-      reports.push(sr);
+      await ensureRuns(side, runs);
     }
-    if (skipped.length) console.error(`cost cap $${config.maxCostUsd} reached after $${spent.toFixed(2)}; skipped: ${skipped.join(', ')}`);
-    const report = buildReport(reports, all, { oldModel, newModel, startedAt, claudeVersion, skipped });
-    const out = opts.out ?? join(opts.store, 'reports', 'claude', newModel, startedAt.toISOString().replace(/[:.]/g, '-'));
-    mkdirSync(out, { recursive: true });
-    if (opts.format !== 'json') writeFileSync(join(out, 'report.md'), toMarkdown(report));
-    if (opts.format !== 'md') writeFileSync(join(out, 'report.json'), JSON.stringify(report, null, 2));
-    if (opts.format === 'json') console.log(JSON.stringify(report, null, 2));
-    else { console.log(toMarkdown(report)); console.error(`report: ${out}`); }
-    process.exitCode = report.exit_code;
-    const webhook = opts.webhook ?? process.env.SKILLDRIFT_WEBHOOK_URL;
-    if (webhook) await postWebhook(webhook, report, join(out, 'report.md'));
-  });
+
+    const caseNames = [...new Set([...sc.old.cases, ...sc.new.cases].map((c) => c.name))];
+    const tagsOf = (c: string) => scNew.cases.find((x) => x.name === c)?.tags ?? [];
+    let totalRuns = Math.min(runsMax, countRuns(results.old, caseNames), countRuns(results.new, caseNames));
+    const compareCurrent = () => compareSkill(name, limitRuns(results.old, totalRuns || Infinity), limitRuns(results.new, totalRuns || Infinity), tagsOf, config.aggregateDropPt);
+    let comparison = compareCurrent();
+    while (totalRuns < runsMax) {
+      const ambiguous = comparison.cases.filter((c) => c.needsMoreRuns).map((c) => c.name);
+      if (!ambiguous.length) break;
+      totalRuns = Math.min(runsMax, totalRuns + runs);
+      for (const caseName of ambiguous) {
+        for (const side of SIDES) {
+          if (side === 'new' && shared) continue;
+          await ensureRuns(side, totalRuns, caseName);
+        }
+      }
+      comparison = compareCurrent();
+    }
+
+    const sr: SkillReport = { ...comparison, flags: skillFlags(comparison, scNew.source), cases_source: scNew.source, cases_hash: hashCases(scNew.cases) };
+    const meta = { skill: name, agent: 'claude', old_model: oldModel, new_model: newModel };
+    for (const c of sr.cases) store.appendVerdict({ ...meta, case: c.name, ...c });
+    store.appendVerdict({ ...meta, case: null, verdict: sr.verdict, flags: sr.flags, aggregate: sr.aggregate, trigger: sr.trigger, keys });
+    all.old.push(...results.old);
+    all.new.push(...results.new);
+    reports.push(sr);
+  }
+
+  if (skipped.length) console.error(`cost cap $${config.maxCostUsd} reached after $${spent.toFixed(2)}; skipped: ${skipped.join(', ')}`);
+  const report = buildReport(reports, all, { oldModel, newModel, startedAt, claudeVersion, skipped });
+  const out = opts.out ?? join(opts.store, 'reports', 'claude', newModel, startedAt.toISOString().replace(/[:.]/g, '-'));
+  mkdirSync(out, { recursive: true });
+  if (opts.format !== 'json') writeFileSync(join(out, 'report.md'), toMarkdown(report));
+  if (opts.format !== 'md') writeFileSync(join(out, 'report.json'), JSON.stringify(report, null, 2));
+  if (opts.format === 'json') console.log(JSON.stringify(report, null, 2));
+  else { console.log(toMarkdown(report)); console.error(`report: ${out}`); }
+  process.exitCode = report.exit_code;
+  const webhook = opts.webhook ?? process.env.SKILLDRIFT_WEBHOOK_URL;
+  if (webhook) await postWebhook(webhook, report, join(out, 'report.md'));
+}
 
 async function postWebhook(url: string, report: Report, reportPath: string): Promise<void> {
   const text = [
@@ -304,11 +300,11 @@ program
       .filter((v) => (v.agent ?? 'claude') === opts.agent && (!opts.skill || v.skill === opts.skill));
     if (opts.format === 'json') return console.log(JSON.stringify(rows, null, 2));
     const pct = (x?: number) => x == null ? 'n/a' : `${Math.round(x * 100)}%`;
-    const lines: string[] = [];
-    for (const skill of [...new Set(rows.map((v) => v.skill))]) {
-      lines.push(`## ${skill}`, '', '| When | Old | New | Verdict | Old pass | New pass | Flags |', '| --- | --- | --- | --- | --- | --- | --- |',
-        ...rows.filter((v) => v.skill === skill).map((v) => `| ${v.ts.slice(0, 16).replace('T', ' ')} | ${v.old_model} | ${v.new_model} | ${v.verdict} | ${pct(v.aggregate?.old_pass_rate)} | ${pct(v.aggregate?.new_pass_rate)} | ${(v.flags ?? []).join(', ')} |`), '');
-    }
+    const lines = [...new Set(rows.map((v) => v.skill))].flatMap((skill) => [
+      `## ${skill}`, '', '| When | Old | New | Verdict | Old pass | New pass | Flags |', '| --- | --- | --- | --- | --- | --- | --- |',
+      ...rows.filter((v) => v.skill === skill).map((v) => `| ${v.ts.slice(0, 16).replace('T', ' ')} | ${v.old_model} | ${v.new_model} | ${v.verdict} | ${pct(v.aggregate?.old_pass_rate)} | ${pct(v.aggregate?.new_pass_rate)} | ${(v.flags ?? []).join(', ')} |`),
+      '',
+    ]);
     console.log(lines.length ? lines.join('\n') : 'no verdicts');
   });
 
