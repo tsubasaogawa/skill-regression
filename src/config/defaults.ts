@@ -7,7 +7,7 @@ const xdgDataHome = process.env.XDG_DATA_HOME;
 const dataHome = xdgDataHome && isAbsolute(xdgDataHome) ? xdgDataHome : join(homedir(), '.local', 'share');
 
 export const DEFAULTS = {
-  suitePath: 'suite.yaml',
+  suitePath: join(dataHome, 'skilldrift', 'suite.yaml'),
   skillsDir: join(homedir(), '.claude', 'skills'),
   fixturesDir: 'fixtures',
   runs: 1,

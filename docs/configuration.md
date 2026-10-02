@@ -27,6 +27,8 @@ max_cost_usd: 20
 
 skilldrift resolves each value in this order: CLI argument, suite.yaml, built-in default, interactive prompt.
 
+`init` writes suite.yaml to `<store>/suite.yaml` by default (see [Store](#store)), and `compare` reads it from there. Change the location with `--suite <file>`.
+
 ## Cache
 
 skilldrift caches each result under the key `Skill name + hash(Skill directory) + hash(cases and input files) + model + judge + runs-max`. The Skill directory hash excludes `evals/`, while the case hash includes the contents of input files the cases reference. As long as the old model's conditions stay the same, a comparison against a different new model reuses the old model's results. The new side reuses results under the same rule.

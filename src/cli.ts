@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command, CommanderError } from 'commander';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { stringify } from 'yaml';
@@ -89,7 +89,7 @@ interface CompareOpts extends CompareOverrides {
 program
   .command('compare')
   .description('Compare skill behaviour between two models')
-  .option('--suite <file>', 'suite configuration file (default: suite.yaml)')
+  .option('--suite <file>', `suite configuration file (default: ${DEFAULTS.suitePath})`)
   .option('--skills-dir <dir>', 'skills directory', DEFAULTS.skillsDir)
   .option('--fixtures-dir <dir>', 'fixtures root', DEFAULTS.fixturesDir)
   .option('--skill <name>', 'only this skill')
@@ -302,6 +302,7 @@ program
     if (existsSync(opts.suite) && !opts.force) return inputError(`${opts.suite} already exists; pass --force to overwrite`);
     const baselineModel = opts.baselineModel ?? await promptForModel('Baseline model').catch(inputError);
     const skills = guard(() => opts.allSkills ? listSkills(opts.skillsDir) : []);
+    mkdirSync(dirname(opts.suite), { recursive: true });
     writeFileSync(opts.suite, suiteTemplate({ baselineModel, skills }));
     console.error(`wrote ${opts.suite}`);
   });
