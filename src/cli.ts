@@ -14,7 +14,7 @@ import { compareSkill } from './comparator/verdict.js';
 import { hashCases, hashDir } from './cases/hash.js';
 import { cacheKey, Store } from './store/store.js';
 import { buildReport, exitCode, skillFlags, toMarkdown, type SkillReport } from './reporter/report.js';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { cliVersion } from './runner/version.js';
 import type { RunResult } from './runner/types.js';
 import { fileURLToPath } from 'node:url';
@@ -227,6 +227,37 @@ program
     const cases = sc.source === 'generated' ? new Store(opts.store).loadGenerated(skill, hashDir(sc.dir)) : sc.cases;
     if (!cases) return program.error(`no generated cases for ${skill}; run compare first`);
     process.stdout.write(stringify(cases));
+  });
+
+export function suiteTemplate(o: { baselineModel: string; skills: string[] }): string {
+  return [
+    '# skilldrift suite configuration (see README)',
+    `baseline_model: ${o.baselineModel}`,
+    '',
+    '# Skills to compare. Omit to compare every skill under --skills-dir.',
+    ...(o.skills.length ? ['skills:', ...o.skills.map((s) => `  - ${s}`)] : ['# skills: []']),
+    '',
+    `runs: ${DEFAULTS.runs}`,
+    '# aggregate_drop_pt: 0.1    # pass-rate drop (0-1) that marks a skill DEGRADED',
+    `case_generator_model: ${DEFAULTS.caseGeneratorModel}`,
+    '',
+  ].join('\n');
+}
+
+program
+  .command('init')
+  .description('Write a suite.yaml template')
+  .option('--suite <file>', 'output file', DEFAULTS.suitePath)
+  .option('--baseline-model <model>', 'baseline model (prompted if omitted)')
+  .option('--skills-dir <dir>', 'skills directory used to list skills', DEFAULTS.skillsDir)
+  .option('--all-skills', 'write every skill under --skills-dir explicitly instead of omitting skills')
+  .option('--force', 'overwrite an existing file')
+  .action(async (opts: { suite: string; baselineModel?: string; skillsDir: string; allSkills?: boolean; force?: boolean }) => {
+    if (existsSync(opts.suite) && !opts.force) return program.error(`${opts.suite} already exists; pass --force to overwrite`);
+    const baselineModel = opts.baselineModel ?? await promptForModel('Baseline model');
+    const skills = opts.allSkills ? listSkills(opts.skillsDir) : [];
+    writeFileSync(opts.suite, suiteTemplate({ baselineModel, skills }));
+    console.error(`wrote ${opts.suite}`);
   });
 
 program

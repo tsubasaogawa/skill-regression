@@ -212,7 +212,7 @@ assertion 対応:
 | 5 | LLM によるケース生成 (`generated`) | 実装・単体/CLI 統合テスト済み | `case_generator_model` (suite.yaml) / `--case-generator` で生成モデルを固定。§12 参照 |
 | 6 | DEGRADED 判定 | 実装・単体テスト済み | `aggregate_drop_pt` (suite.yaml) / `--aggregate-drop-pt` 指定時のみ判定。§13 参照 |
 | 7 | `skilldrift trend` | 実装・テスト済み | `verdicts.jsonl` の Skill 行 (`case: null`) を時系列に並べる。`--skill`、`--agent`、`--format md\|json` |
-| 8 | `skilldrift init` | 未実装 | `suite.yaml` の雛形生成。2 の後 |
+| 8 | `skilldrift init` | 実装・テスト済み | `--baseline-model` (無ければ対話)、`--all-skills`、`--force`。§15 参照 |
 | 9 | `--max-cost-usd`、`--non-interactive` (exit 3)、`--webhook`、`--agent` | 未実装 | `--agent codex` はフェーズ 2 |
 | 10 | `/tmp` 出力の fixture 内パスへの書き換え | `bypassPermissions` で `/tmp` にそのまま書く | 並列実行時に Skill 同士が `/tmp` で衝突しうる |
 | 11 | `low-power` フラグ | 未実装 | runs が少なく REGRESSED を検出しきれない場合の警告。閾値は設計ノートに無い |
@@ -269,3 +269,9 @@ Runner をモックした CLI 統合テストを追加し、実モデルを呼�
 - `Store.skillVerdicts()` が `verdicts.jsonl` の Skill 行 (`case` が null または無い行) を `ts` 昇順で返す。順 4 時代の旧形式行 (`aggregate` 無し) も表示し、合格率は `n/a` にする。
 - 「モデル順」はモデル名で並べ替えられないため、実行時刻順 (= 比較を行った順) とした。
 - 出力は Skill ごとの Markdown 表 (When / Old / New / Verdict / Old pass / New pass / Flags) か `--format json` で行配列。
+
+## 15. `skilldrift init` (2026-10-02)
+
+- `suite.yaml` の雛形を書く。`baseline_model` は `--baseline-model`、無ければ対話入力 (非 TTY なら `compare` と同じく失敗)。`runs` と `case_generator_model` は既定値入り、`aggregate_drop_pt` はコメントアウト。
+- `skills` は既定で省略 (= 全 Skill 対象)。`--all-skills` で `--skills-dir` 配下の全 Skill を明示的に列挙する。設計ノートの「対象 Skill を対話で尋ねる」は省略した。
+- 既存ファイルは `--force` 無しでは上書きしない。フェーズ 1 は Claude のみのため `--agent` は無い。
