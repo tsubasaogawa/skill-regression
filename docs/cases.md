@@ -19,4 +19,6 @@ Neutral format example:
       value: peekaboo
 ```
 
+`llm_rubric` assertions are opt-in. Without `--llm-rubric`, `compare` drops them from every case, including generated `quality` cases, and needs no `ANTHROPIC_API_KEY`. With the flag, they run through the judge model (`--judge`). A case left with no assertions passes trivially. For a more accurate evaluation, we recommend enabling `llm_rubric`: deterministic assertions cannot see differences in response quality between models.
+
 From cases tagged `trigger` or `no-trigger`, skilldrift also computes trigger precision and recall. On top of the per-case trigger outcome, it compares precision and recall with their own Beta posteriors and feeds a regression in either into the Skill verdict. A metric with a zero denominator shows as `n/a` and skilldrift skips its comparison. At run time, skilldrift rewrites `/tmp` in prompts and assertions to `<fixture>/tmp`.
