@@ -18,7 +18,7 @@ Runs go through the `anthropic:claude-agent-sdk` provider of [promptfoo](https:/
 
 - Node.js 22.22 or later, pnpm
 - Claude Code (Skill runs and case generation use your login)
-- `ANTHROPIC_API_KEY` if you use `llm_rubric` assertions. The judge calls the Anthropic Messages API itself, and generated cases include `llm_rubric`, so you need the key to run them.
+- `ANTHROPIC_API_KEY` only if you pass `--llm-rubric`. Without the flag, `llm_rubric` assertions (including those in generated `quality` cases) are ignored. The judge calls the Anthropic Messages API itself.
 
 ```sh
 pnpx skilldrift --help
