@@ -1,81 +1,81 @@
 # skilldrift
 
-新しいモデルが出たときに、Claude Code の Skill がデグレードしていないかを自動判定する CLI。
+A CLI that tells you whether a new model has regressed your Claude Code Skills.
 
-旧モデルと新モデルで同じ Skill を同じケースで複数回実行する。
+skilldrift runs each Skill against the same cases on the old model and the new one, several times each.
 
-合格率の差を Beta 事後分布で比較し、Skill ごとに REGRESSED / DEGRADED / INCONCLUSIVE / IMPROVED / UNCHANGED を出す。
+It compares the pass rates with a Beta posterior and labels each Skill REGRESSED, DEGRADED, INCONCLUSIVE, IMPROVED, or UNCHANGED.
 
-実行は [promptfoo](https://www.promptfoo.dev/) の `anthropic:claude-agent-sdk` provider 経由で、Claude Code のログインで動く。
+Runs go through the `anthropic:claude-agent-sdk` provider of [promptfoo](https://www.promptfoo.dev/), so your Claude Code login is enough.
 
-## メリット
+## Why
 
-- Skill 単位でデグレードを検出できる。モデル単体で性能が上がっても、個別の Skill やケースはデグレードしうるため (参考文献を参照)、集計ではなくケースごとに新旧モデルを比較する。
-- デグレードの有無を確率で判定する。LLM の出力はばらつくので 1 回の比較では信用できない。複数回実行して Beta 事後分布で P(新 < 旧) を出し、曖昧なら反復を自動で追加する。
-- Skill の CI に本 CLI を組み込むことでリリース前のデグレ確認に使える。
+- Catches regressions per Skill. A model can score higher overall while individual Skills or cases get worse (see References), so skilldrift compares old and new per case instead of in aggregate.
+- Reports regressions as probabilities. LLM output varies, so one comparison proves little. skilldrift repeats each case, computes P(new < old) from a Beta posterior, and adds runs when the result stays ambiguous.
+- Fits into a Skill's CI as a pre-release regression gate.
 
-## 必要なもの
+## Requirements
 
-- Node.js 22.22 以上、pnpm
-- Claude Code (Skill の実行とケース生成はログインで動く)
-- `llm_rubric` assertion を使う場合は環境変数 `ANTHROPIC_API_KEY` (judge は Anthropic Messages API を直接呼ぶ。生成ケースは必ず `llm_rubric` を含む)
+- Node.js 22.22 or later, pnpm
+- Claude Code (Skill runs and case generation use your login)
+- `ANTHROPIC_API_KEY` if you use `llm_rubric` assertions. The judge calls the Anthropic Messages API itself, and generated cases include `llm_rubric`, so you need the key to run them.
 
 ```sh
 pnpx skilldrift --help
 ```
 
-## 使い方
+## Usage
 
 ```sh
-# suite.yaml の雛形を作る
+# Scaffold suite.yaml
 skilldrift init --baseline-model claude-sonnet-5-5
 
-# 対象 Skill とケース数を確認する
+# Check which Skills and how many cases will run
 skilldrift compare --dry-run
 
-# 旧モデルと新モデルを比較する
+# Compare the old model with a new one
 skilldrift compare --new claude-opus-5-5 --runs 5 --runs-max 15
 
-# 判定履歴を見る
+# Show verdict history
 skilldrift trend --skill my-skill
 
-# 生成ケースを人手ケースに昇格させる
+# Promote generated cases to hand-written ones
 skilldrift cases export my-skill > ~/.claude/skills/my-skill/evals/cases.yaml
 ```
 
-## セキュリティ上の注意
+## Security
 
-評価対象の Skill は Claude Code の全ツールを許可した状態 (`bypassPermissions`) でホスト上に直接実行される。サンドボックスはない。
+skilldrift runs the Skills under test on your host with Claude Code's tools unrestricted (`bypassPermissions`). There is no sandbox.
 
-- Skill の SKILL.md や同梱スクリプト、ケースの prompt、生成ケースに含まれる指示は、実行ユーザーの権限で任意のコマンドとして実行されうる
-- ケースの `files` で `.claude/settings.json` を fixture に置くと、hooks などの設定も有効になる
-- 信頼できない Skill を評価するときは、コンテナや devcontainer など隔離された環境で実行すること
+- SKILL.md, bundled scripts, case prompts, and instructions inside generated cases can run arbitrary commands with your user's privileges.
+- A case that places `.claude/settings.json` in the fixture via `files` also activates hooks and other settings from that file.
+- Run untrusted Skills in an isolated environment such as a container or devcontainer.
 
-## ドキュメント
+## Documentation
 
-- [設定](docs/configuration.md): `compare` のオプション、suite.yaml、キャッシュ、Store
-- [ケース](docs/cases.md): ケースの探索順と中立形式
-- [判定と終了コード](docs/verdicts.md): 判定条件、終了コード、フラグ
-- [開発](DEVELOPMENT.md): ビルド、テスト、ソース構成
+- [Configuration](docs/configuration.md): `compare` options, suite.yaml, cache, Store
+- [Cases](docs/cases.md): lookup order and the neutral case format
+- [Verdicts and exit codes](docs/verdicts.md): verdict criteria, exit codes, flags
+- [Development](DEVELOPMENT.md): build, tests, source layout
 
-## 参考文献
+## References
 
-新モデルの登場で既存の Skill やプロンプトが退行しうることを示す研究と一次資料。
+Research and primary sources showing that a new model can regress existing Skills and prompts.
 
-- Anthropic「[Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)」: Skill の有効性は基盤モデルに依存するため、使う予定のモデルすべてでテストせよと明記
-- Anthropic「[Prompting Claude Fable 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5)」: 旧モデル向けの Skill は新モデルには指示が細かすぎ、出力品質を下げうる
-- Anthropic「[Prompting best practices](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices)」: 旧モデル向けの強い表現が新モデルでは過剰に発火する
-- Anthropic「[Improving skill-creator](https://claude.com/blog/improving-skill-creator-test-measure-and-refine-agent-skills)」: 新モデルへの eval 実行を Skill メンテナンスの手段として位置付け
-- Ma, Yang, Kästner 2024「[(Why) Is My Prompt Getting Worse?](https://arxiv.org/abs/2311.11123)」CAIN 2024: 全体精度が改善した更新の 87.9% で個別プロンプトの退行が発生
-- Xu & Wu 2026「[What Aggregate Scores Miss](https://arxiv.org/abs/2608.17719)」: 集計スコアが +7.3 pp でも 8.3% の項目が安定して退行
-- Cacioli 2026「[Beyond the Mean](https://arxiv.org/abs/2604.27405)」: 平均は改善しても項目の 28〜39% が悪化
-- Sheng & Lu 2026「[No Universal Signal Predicts Sample-Level LLM Regression](https://arxiv.org/abs/2608.13607)」: 退行する項目を事前予測する汎用シグナルはなく、更新ごとの回帰テストが唯一の検出手段
-- Wang et al. 2025「[PromptBridge](https://arxiv.org/abs/2512.01420)」: 特定モデル向けに最適化したプロンプトは他モデルで 2〜11 pt 低下 (Model Drifting)
-- Sclar et al. 2024「[Quantifying Language Models' Sensitivity to Spurious Features in Prompt Design](https://arxiv.org/abs/2310.11324)」ICLR 2024: 書式の効き方はモデル間で弱くしか相関しない
-- Nori et al. 2024「[From Medprompt to o1](https://arxiv.org/abs/2411.03590)」: 旧世代向けの few-shot / CoT が推論モデルでは逆効果
-- Liang et al. 2025「[Prompts Are Programs Too!](https://arxiv.org/abs/2409.12447)」FSE 2025: マイナーバージョン変更でプロンプトがほぼ全て壊れたという実務者の報告
-- Tripathi et al. 2025「[Prompt Migration](https://arxiv.org/abs/2507.05573)」: モデル更新で本番アプリのテスト合格率が 100% から 97.3% に低下し、プロンプト書き直しで回復
+- Anthropic, "[Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)": Skill effectiveness depends on the underlying model, so test on each model you plan to use.
+- Anthropic, "[Prompting Claude Fable 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5)": Skills written for older models can over-specify instructions for newer ones and lower output quality.
+- Anthropic, "[Prompting best practices](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices)": forceful wording written for older models over-triggers on newer ones.
+- Anthropic, "[Improving skill-creator](https://claude.com/blog/improving-skill-creator-test-measure-and-refine-agent-skills)": positions running evals against new models as part of Skill maintenance.
+- Ma, Yang, Kästner 2024, "[(Why) Is My Prompt Getting Worse?](https://arxiv.org/abs/2311.11123)", CAIN 2024: 87.9% of updates that improved overall accuracy regressed individual prompts.
+- Xu & Wu 2026, "[What Aggregate Scores Miss](https://arxiv.org/abs/2608.17719)": 8.3% of items regressed across runs despite a +7.3 pp gain in the aggregate score.
+- Cacioli 2026, "[Beyond the Mean](https://arxiv.org/abs/2604.27405)": 28 to 39% of items got worse while the mean improved.
+- Sheng & Lu 2026, "[No Universal Signal Predicts Sample-Level LLM Regression](https://arxiv.org/abs/2608.13607)": no general signal predicts which items will regress, so per-update regression testing is the only way to catch them.
+- Wang et al. 2025, "[PromptBridge](https://arxiv.org/abs/2512.01420)": prompts tuned for one model drop 2 to 11 points on other models (Model Drifting).
+- Sclar et al. 2024, "[Quantifying Language Models' Sensitivity to Spurious Features in Prompt Design](https://arxiv.org/abs/2310.11324)", ICLR 2024: formatting effects show weak correlation across models.
+- Nori et al. 2024, "[From Medprompt to o1](https://arxiv.org/abs/2411.03590)": few-shot and chain-of-thought prompting designed for earlier models hurt reasoning models.
+- Liang et al. 2025, "[Prompts Are Programs Too!](https://arxiv.org/abs/2409.12447)", FSE 2025: practitioners report that a minor version change broke all but a few of their prompts.
+- Tripathi et al. 2025, "[Prompt Migration](https://arxiv.org/abs/2507.05573)": a model update dropped a production app's test pass rate from 100% to 97.3%, and rewriting the prompts restored it.
 
-## ライセンス
+## License
 
 MIT

@@ -1,13 +1,13 @@
-# 判定と終了コード
+# Verdicts and exit codes
 
-| 判定 | 条件 |
+| Verdict | Condition |
 | --- | --- |
-| REGRESSED | P(p_new < p_old) >= 0.95 のケースがある、または発火 precision / recall が退行 |
-| DEGRADED | REGRESSED 無しで、集計合格率の低下が `aggregate_drop_pt` 以上 |
-| INCONCLUSIVE | 追加反復を使い切っても P_reg が 0.8〜0.95 に留まる |
-| IMPROVED | P_reg <= 0.05 のケースがある |
-| UNCHANGED | 上記以外 |
+| REGRESSED | At least one case has P(p_new < p_old) >= 0.95, or trigger precision or recall regressed |
+| DEGRADED | No REGRESSED case, and the aggregate pass rate dropped by `aggregate_drop_pt` or more |
+| INCONCLUSIVE | P_reg stays between 0.8 and 0.95 after skilldrift exhausts the extra runs |
+| IMPROVED | At least one case has P_reg <= 0.05 |
+| UNCHANGED | Anything else |
 
-終了コードは 0 = 退行無し、1 = 決定的 assertion または発火判定の REGRESSED あり、2 = DEGRADED / INCONCLUSIVE / 一部未実行、3 = 入力エラー。`llm_rubric` だけに依存する退行は 1 にせずレポートのみ。同じケースに決定的 assertion と `llm_rubric` がある場合も、決定的 assertion の合格率を別に比較して終了コードに反映する。
+Exit codes: 0 = no regression, 1 = REGRESSED on a deterministic assertion or on trigger detection, 2 = DEGRADED, INCONCLUSIVE, or some cases did not run, 3 = input error. A regression that rests on `llm_rubric` alone stays in the report and does not raise the exit code to 1. When a case has both deterministic assertions and `llm_rubric`, skilldrift compares the deterministic pass rate on its own and uses that for the exit code.
 
-フラグ: `generated-cases` (生成ケース)、`judge-dependent` (judge 依存)、`partial` (エラー run あり)、`low-power` (反復が少なく新モデルが全滅しても REGRESSED に届かない)。
+Flags: `generated-cases` (cases came from the generator), `judge-dependent` (verdict depends on the judge), `partial` (some runs errored), `low-power` (too few runs: the Skill would not reach REGRESSED even if the new model failed each run).

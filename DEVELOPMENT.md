@@ -1,29 +1,29 @@
-# 開発
+# Development
 
-## コマンド
+## Commands
 
 ```sh
 pnpm install
-pnpm dev -- compare --dry-run   # tsx で src/cli.ts を直接実行
-pnpm build                      # tsc → dist/
+pnpm dev -- compare --dry-run   # run src/cli.ts through tsx
+pnpm build                      # tsc to dist/
 pnpm test                       # vitest
-scripts/acceptance.sh           # 合成 Skill で UNCHANGED / REGRESSED を実機確認 (Claude Code の使用量を消費)
+scripts/acceptance.sh           # check UNCHANGED / REGRESSED on synthetic Skills against real models (consumes Claude Code usage)
 ```
 
-`scripts/acceptance.sh` は `MODEL` (既定 sonnet) と `RUNS` (既定 3) を環境変数で上書きできる。
+`scripts/acceptance.sh` reads `MODEL` (default sonnet) and `RUNS` (default 3) from the environment.
 
-## 構成
+## Layout
 
 ```
 src/
-  cli.ts        # commander のエントリ。init / compare / trend / cases の各サブコマンド、webhook 送信
-  config/       # 既定値と suite.yaml の読み込み
-  cases/        # cases.yaml / evals.json の読み込み、LLM 生成、Skill とケースのハッシュ
-  planner/      # fixture ディレクトリの組み立て
-  runner/       # promptfoo 経由の実行と結果の正規化
-  comparator/   # Beta 事後分布による比較と判定
-  reporter/     # report.md / report.json の生成
-  store/        # results.jsonl / verdicts.jsonl の読み書き
-test/           # vitest。おおむね src のモジュール単位
-fixtures/       # テスト用 Skill
+  cli.ts        # commander entry point. init / compare / trend / cases subcommands, webhook delivery
+  config/       # defaults and suite.yaml loading
+  cases/        # cases.yaml / evals.json loading, LLM generation, Skill and case hashing
+  planner/      # fixture directory assembly
+  runner/       # execution through promptfoo and result normalization
+  comparator/   # Beta posterior comparison and verdicts
+  reporter/     # report.md / report.json generation
+  store/        # results.jsonl / verdicts.jsonl read and write
+test/           # vitest, about one file per src module
+fixtures/       # Skills used by the tests
 ```

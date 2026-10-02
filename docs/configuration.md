@@ -1,46 +1,46 @@
-# 設定
+# Configuration
 
-## `compare` の主なオプション
+## Main `compare` options
 
-| オプション | 説明 |
+| Option | Description |
 | --- | --- |
-| `--old` / `--new` | 旧 / 新モデル。`--old` 省略時は suite.yaml の `baseline_model` |
-| `--skill`, `--case` | 対象を絞る |
-| `--runs`, `--runs-max` | ケースあたりの反復数と、判定が曖昧なときの追加反復の上限 |
-| `--old-skills-dir` | 旧側だけ別の Skill ディレクトリを使う。ケースと入力ファイルは新側のものを両側で共有する (SKILL.md 修正前後の比較に) |
-| `--aggregate-drop-pt` | 集計合格率がこれ以上 (0〜1) 下がったら DEGRADED |
-| `--max-cost-usd` | 実績コストが上限に達したら以降の Skill を開始しない |
-| `--webhook` | Slack Incoming Webhook 互換の URL に要約を POST |
-| `--non-interactive` | 対話しない。必須項目が無ければ終了コード 3 |
-| `--no-cache` | 同じ鍵の結果があっても再実行する |
+| `--old` / `--new` | Old and new model. Without `--old`, skilldrift uses `baseline_model` from suite.yaml |
+| `--skill`, `--case` | Limit the run to specific Skills or cases |
+| `--runs`, `--runs-max` | Runs per case, and the cap on extra runs added when a verdict stays ambiguous |
+| `--old-skills-dir` | Use a different Skill directory for the old side. Both sides share the new side's cases and input files (for comparing a SKILL.md before and after an edit) |
+| `--aggregate-drop-pt` | Mark the Skill DEGRADED when the aggregate pass rate drops by at least this much (0 to 1) |
+| `--max-cost-usd` | Stop starting new Skills once the recorded cost reaches this limit |
+| `--webhook` | POST a summary to a Slack Incoming Webhook compatible URL |
+| `--non-interactive` | Skip prompts. Exit with code 3 when a required value is missing |
+| `--no-cache` | Re-run even when a result with the same key exists |
 
 ## suite.yaml
 
 ```yaml
 baseline_model: claude-sonnet-5-5
-# skills: [my-skill]            # 省略時は --skills-dir 配下の全 Skill
+# skills: [my-skill]            # defaults to all Skills under --skills-dir
 runs: 5
 aggregate_drop_pt: 0.1
 case_generator_model: claude-sonnet-5-5
 max_cost_usd: 20
 ```
 
-値は CLI 引数 → suite.yaml → 既定値 → 対話入力の順で解決する。
+skilldrift resolves each value in this order: CLI argument, suite.yaml, built-in default, interactive prompt.
 
-## キャッシュ
+## Cache
 
-実行結果は `Skill 名 + hash(Skill ディレクトリ) + hash(ケースと入力ファイル) + モデル + judge + runs-max` を鍵にキャッシュする。Skill ディレクトリのハッシュからは `evals/` を除くが、ケースが参照する入力ファイルの内容はケース側のハッシュに含める。旧モデルの条件が変わらなければ、別の新モデルとの比較では旧モデルの結果を再利用する。新モデル側も同じ条件なら再利用する。
+skilldrift caches each result under the key `Skill name + hash(Skill directory) + hash(cases and input files) + model + judge + runs-max`. The Skill directory hash excludes `evals/`, while the case hash includes the contents of input files the cases reference. As long as the old model's conditions stay the same, a comparison against a different new model reuses the old model's results. The new side reuses results under the same rule.
 
-キャッシュ形式はバージョン管理し、旧形式の実行結果は再利用しない。キャッシュに記録された Claude Code のバージョンが現在と異なる場合は標準エラーに警告を出す (再利用はする。`--no-cache` で再実行)。
+The cache format carries a version, and skilldrift ignores results written in an older format. If the Claude Code version recorded in the cache differs from the current one, skilldrift prints a warning to stderr but still reuses the results. Pass `--no-cache` to re-run.
 
 ## Store
 
-既定は `./.skilldrift/`。
+Defaults to `./.skilldrift/`.
 
 ```
-results.jsonl      # run ごとの正規化結果 (キャッシュの実体)
-verdicts.jsonl     # ケース行と Skill 行 (case: null) の判定履歴。trend の元
-raw/               # promptfoo の生 JSON
-generated/         # LLM 生成ケース
+results.jsonl      # normalized result per run (the cache itself)
+verdicts.jsonl     # verdict history, one row per case plus one per Skill (case: null). Source for trend
+raw/               # raw promptfoo JSON
+generated/         # LLM-generated cases
 reports/claude/<new-model>/<timestamp>/report.md, report.json
 ```
