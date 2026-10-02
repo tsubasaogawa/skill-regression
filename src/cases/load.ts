@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { fromEvalsJson, type EvalsJson } from './fromEvalsJson.js';
 import type { Case } from './types.js';
@@ -21,6 +21,7 @@ export function listSkills(skillsDir: string): string[] {
 }
 
 export function resolveCases(skillsDir: string, skill: string): SkillCases {
+  if (skill !== basename(skill) || skill === '.' || skill === '..') throw new Error(`invalid skill name: ${skill}`);
   const dir = join(skillsDir, skill);
   if (!existsSync(join(dir, 'SKILL.md'))) throw new Error(`skill not found: ${skill}`);
   const read = (file: string) => readFileSync(join(dir, 'evals', file), 'utf8');
@@ -54,7 +55,15 @@ export function validateCases(value: unknown, dir: string): Case[] {
       if (!a || (!['skill_used', 'skill_not_used'].includes(a.type) && (!field || !text(a[field])))) {
         throw new Error(`invalid assertion for case: ${c.name}`);
       }
+      if (a.type === 'file_exists' && !insideFixture(a.path)) throw new Error(`file_exists path must stay inside the fixture: ${a.path}`);
     }
   }
   return value as Case[];
+}
+
+/** /tmp is relocated into <fixture>/tmp at run time; anything else must be a relative path that stays inside the fixture. */
+function insideFixture(p: string): boolean {
+  const local = p.replace(/^\/tmp(?=\/|$)/, 'tmp');
+  const rel = relative('/fixture', resolve('/fixture', local));
+  return !isAbsolute(local) && !!rel && !rel.startsWith('..');
 }

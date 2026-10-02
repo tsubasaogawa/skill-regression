@@ -246,11 +246,12 @@ async function postWebhook(url: string, report: Report, reportPath: string): Pro
     ...(report.skipped_skills?.length ? [`skipped (cost cap): ${report.skipped_skills.join(', ')}`] : []),
     reportPath,
   ].join('\n');
+  const host = URL.canParse(url) ? new URL(url).host : 'invalid url';
   try {
     const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
-    if (!res.ok) console.error(`webhook ${url} responded ${res.status}`);
+    if (!res.ok) console.error(`webhook ${host} responded ${res.status}`);
   } catch (e) {
-    console.error(`webhook ${url} failed: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`webhook ${host} failed: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 

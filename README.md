@@ -42,6 +42,14 @@ skilldrift trend --skill my-skill
 skilldrift cases export my-skill > ~/.claude/skills/my-skill/evals/cases.yaml
 ```
 
+## セキュリティ上の注意
+
+評価対象の Skill は Claude Code の全ツールを許可した状態 (`bypassPermissions`) でホスト上に直接実行される。サンドボックスはない。
+
+- Skill の SKILL.md や同梱スクリプト、ケースの prompt、生成ケースに含まれる指示は、実行ユーザーの権限で任意のコマンドとして実行されうる
+- ケースの `files` で `.claude/settings.json` を fixture に置くと、hooks などの設定も有効になる
+- 信頼できない Skill を評価するときは、コンテナや devcontainer など隔離された環境で実行すること
+
 ## ドキュメント
 
 - [設定](docs/configuration.md): `compare` のオプション、suite.yaml、キャッシュ、Store

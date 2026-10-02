@@ -69,6 +69,15 @@ it('posts a summary to the webhook', async () => {
   expect(body.text).toContain(join(root, 'report', 'report.md'));
 });
 
+it('logs only the webhook host on failure', async () => {
+  vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('boom'));
+  const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+  await program.parseAsync([...base(), '--old', 'o', '--new', 'n', '--webhook', 'https://hook.example/secret/token'], { from: 'user' });
+  const lines = err.mock.calls.map((a) => String(a[0]));
+  expect(lines.some((l) => l.includes('webhook hook.example failed: boom'))).toBe(true);
+  expect(lines.some((l) => l.includes('secret'))).toBe(false);
+});
+
 it('rejects invalid run limits, unknown cases and malformed cases with exit 3 before execution', async () => {
   const args = [...base(), '--old', 'o', '--new', 'n'];
   await expect(program.parseAsync([...args, '--runs', '5', '--runs-max', '4'], { from: 'user' })).rejects.toMatchObject({ exitCode: 3 });
