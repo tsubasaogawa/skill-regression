@@ -30,11 +30,14 @@ pnpx skilldrift --help
 # Optional: scaffold suite.yaml to stop repeating --old, --runs, etc. and to pin settings in CI
 skilldrift init --baseline-model claude-sonnet-5-5
 
-# Check which Skills and how many cases will run
+# Optional: check which Skills and how many cases will run
 skilldrift compare --dry-run
 
 # Compare the old model with a new one (--old defaults to baseline_model in suite.yaml)
-skilldrift compare --new claude-opus-5-5 --runs 5 --runs-max 15
+skilldrift compare --old claude-sonnet-5 --new claude-sonnet-5-5
+
+# Pin-point comparison
+skilldrift compare --old claude-sonnet-5 --new claude-sonnet-5-5 --skill my-skill
 
 # Show verdict history
 skilldrift trend --skill my-skill
