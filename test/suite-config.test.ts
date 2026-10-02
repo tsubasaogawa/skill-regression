@@ -29,8 +29,8 @@ it('loads suite.yaml and treats a missing default suite as empty', () => {
 it('resolves CLI values before suite values and defaults', async () => {
   const prompt = vi.fn(async () => 'unexpected-model');
   const config = await resolveCompareConfig(
-    { old: 'cli-old', new: 'cli-new', skill: 'alpha', runs: '4', aggregateDropPt: '0.2' },
-    { baseline_model: 'suite-old', skills: ['beta'], runs: 2, aggregate_drop_pt: 0.1 },
+    { old: 'cli-old', new: 'cli-new', skill: 'alpha', runs: '4', aggregateDropPt: '0.2', caseGenerator: 'cli-gen' },
+    { baseline_model: 'suite-old', skills: ['beta'], runs: 2, aggregate_drop_pt: 0.1, case_generator_model: 'suite-gen' },
     ['alpha', 'beta'],
     prompt,
   );
@@ -40,6 +40,7 @@ it('resolves CLI values before suite values and defaults', async () => {
     newModel: 'cli-new',
     skills: ['alpha'],
     runs: 4,
+    caseGeneratorModel: 'cli-gen',
     aggregateDropPt: 0.2,
   });
   expect(prompt).not.toHaveBeenCalled();
@@ -49,7 +50,7 @@ it('uses suite values, defaults, then prompts only for missing models', async ()
   const prompt = vi.fn(async (label: string) => `${label.toLowerCase().replaceAll(' ', '-')}-model`);
   const config = await resolveCompareConfig(
     {},
-    { baseline_model: 'suite-old', skills: ['beta'], aggregate_drop_pt: 0.1 },
+    { baseline_model: 'suite-old', skills: ['beta'], aggregate_drop_pt: 0.1, case_generator_model: 'suite-gen' },
     ['alpha', 'beta'],
     prompt,
   );
@@ -59,6 +60,7 @@ it('uses suite values, defaults, then prompts only for missing models', async ()
     newModel: 'candidate-model-model',
     skills: ['beta'],
     runs: 1,
+    caseGeneratorModel: 'suite-gen',
     aggregateDropPt: 0.1,
   });
   expect(prompt).toHaveBeenCalledOnce();
@@ -74,6 +76,7 @@ it('prompts for required models and defaults to all available skills', async () 
     newModel: 'Candidate model-model',
     skills: ['alpha', 'beta'],
     runs: 1,
+    caseGeneratorModel: 'claude-sonnet-5-5',
   });
   expect(prompt).toHaveBeenNthCalledWith(1, 'Baseline model');
   expect(prompt).toHaveBeenNthCalledWith(2, 'Candidate model');

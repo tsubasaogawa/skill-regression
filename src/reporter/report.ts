@@ -23,13 +23,13 @@ export function skillFlags(sc: SkillComparison, source: CaseSource): Flag[] {
   return f;
 }
 
-/** 0 = no regression, 1 = regression on a deterministic case, 2 = inconclusive or partial. Judge-dependent regressions are report-only. */
+/** 0 = no regression, 1 = regression on a deterministic case, 2 = degraded, inconclusive or partial. Judge-dependent regressions are report-only. */
 export function exitCode(skills: SkillReport[]): number {
   const cases = skills.flatMap((s) => s.cases);
   if (cases.some((c) => c.verdict === 'REGRESSED' && !c.judge_dependent)
     || skills.some((s) => s.trigger?.verdict === 'REGRESSED')) return 1;
   if (cases.some((c) => c.verdict === 'INCONCLUSIVE')
-    || skills.some((s) => s.trigger?.verdict === 'INCONCLUSIVE' || s.flags.includes('partial'))) return 2;
+    || skills.some((s) => s.verdict === 'DEGRADED' || s.trigger?.verdict === 'INCONCLUSIVE' || s.flags.includes('partial'))) return 2;
   return 0;
 }
 

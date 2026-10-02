@@ -3,7 +3,7 @@ import { pRegressed } from './beta.js';
 
 export type CaseVerdict = 'REGRESSED' | 'IMPROVED' | 'UNCHANGED' | 'INCONCLUSIVE';
 export type InternalVerdict = CaseVerdict | 'AMBIGUOUS';
-export type SkillVerdict = CaseVerdict;
+export type SkillVerdict = CaseVerdict | 'DEGRADED';
 
 export interface Tally { passed: number; runs: number; errors: number }
 export interface TriggerCaseComparison { name: string; expected: boolean; verdict: CaseVerdict; needsMoreRuns: boolean; old: Tally; new: Tally; p_reg: number }
@@ -97,7 +97,7 @@ export function compareCase(name: string, olds: RunResult[], news: RunResult[], 
   };
 }
 
-export function compareSkill(skill: string, olds: RunResult[], news: RunResult[], tagsOf: (c: string) => string[] = () => []): SkillComparison {
+export function compareSkill(skill: string, olds: RunResult[], news: RunResult[], tagsOf: (c: string) => string[] = () => [], aggregateDropPt?: number): SkillComparison {
   const names = [...new Set([...olds, ...news].map((r) => r.case))];
   const expectations = new Map<string, boolean>();
   for (const name of names) {
@@ -125,10 +125,13 @@ export function compareSkill(skill: string, olds: RunResult[], news: RunResult[]
     return comparison;
   });
   const caseVerdict = verdictForCases(cases);
+  const rate = (k: 'old' | 'new') => { const runs = cases.reduce((s, c) => s + c[k].runs, 0); return runs ? cases.reduce((s, c) => s + c[k].passed, 0) / runs : 0; };
+  const aggregate = { old_pass_rate: rate('old'), new_pass_rate: rate('new') };
+  const degraded = aggregateDropPt !== undefined && aggregate.old_pass_rate - aggregate.new_pass_rate >= aggregateDropPt - 1e-9;
   const verdict: SkillVerdict = trigger?.verdict === 'REGRESSED' || caseVerdict === 'REGRESSED' ? 'REGRESSED'
+    : degraded ? 'DEGRADED'
     : trigger?.verdict === 'INCONCLUSIVE' || caseVerdict === 'INCONCLUSIVE' ? 'INCONCLUSIVE'
     : trigger?.verdict === 'IMPROVED' || caseVerdict === 'IMPROVED' ? 'IMPROVED'
     : 'UNCHANGED';
-  const rate = (k: 'old' | 'new') => { const runs = cases.reduce((s, c) => s + c[k].runs, 0); return runs ? cases.reduce((s, c) => s + c[k].passed, 0) / runs : 0; };
-  return { name: skill, verdict, aggregate: { old_pass_rate: rate('old'), new_pass_rate: rate('new') }, trigger, cases };
+  return { name: skill, verdict, aggregate, trigger, cases };
 }

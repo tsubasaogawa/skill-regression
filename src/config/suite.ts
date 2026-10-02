@@ -7,6 +7,7 @@ export interface SuiteConfig {
   skills?: string[];
   runs?: number;
   aggregate_drop_pt?: number;
+  case_generator_model?: string;
 }
 
 export interface CompareOverrides {
@@ -15,6 +16,7 @@ export interface CompareOverrides {
   skill?: string;
   runs?: string;
   aggregateDropPt?: string;
+  caseGenerator?: string;
 }
 
 export interface ResolvedCompareConfig {
@@ -23,6 +25,7 @@ export interface ResolvedCompareConfig {
   skills: string[];
   runs: number;
   aggregateDropPt?: number;
+  caseGeneratorModel: string;
 }
 
 type ModelPrompt = (label: string) => Promise<string>;
@@ -56,7 +59,7 @@ export function parseSuiteConfig(value: unknown): SuiteConfig {
   if (value == null) return {};
   if (!isRecord(value)) throw new Error('suite.yaml must contain a mapping');
 
-  const allowed = new Set(['baseline_model', 'skills', 'runs', 'aggregate_drop_pt']);
+  const allowed = new Set(['baseline_model', 'skills', 'runs', 'aggregate_drop_pt', 'case_generator_model']);
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length) throw new Error(`unknown suite.yaml field${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}`);
 
@@ -78,6 +81,9 @@ export function parseSuiteConfig(value: unknown): SuiteConfig {
   if (value.aggregate_drop_pt !== undefined) {
     if (typeof value.aggregate_drop_pt !== 'number') throw new Error('aggregate_drop_pt must be between 0 and 1');
     config.aggregate_drop_pt = dropThreshold(value.aggregate_drop_pt, 'aggregate_drop_pt');
+  }
+  if (value.case_generator_model !== undefined) {
+    config.case_generator_model = nonEmptyString(value.case_generator_model, 'case_generator_model');
   }
   return config;
 }
@@ -126,6 +132,9 @@ export async function resolveCompareConfig(
     newModel,
     skills: selectSkills(cli.skill, suite, availableSkills),
     runs,
+    caseGeneratorModel: cli.caseGenerator === undefined
+      ? (suite.case_generator_model ?? DEFAULTS.caseGeneratorModel)
+      : nonEmptyString(cli.caseGenerator, '--case-generator'),
     ...(aggregateDropPt === undefined ? {} : { aggregateDropPt }),
   };
 }

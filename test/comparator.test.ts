@@ -105,3 +105,12 @@ it('rejects cases tagged as both trigger and no-trigger', () => {
   expect(() => compareSkill('s', runs('old', 'invalid', [true]), [], () => ['trigger', 'no-trigger']))
     .toThrow('cannot have both trigger and no-trigger tags');
 });
+
+it('marks a skill DEGRADED when the aggregate pass rate drops by the threshold without a regressed case', () => {
+  const olds = [...runs('old', 'a', k(5, 5)), ...runs('old', 'b', k(5, 5))];
+  const news = [...runs('new', 'a', k(4, 5)), ...runs('new', 'b', k(4, 5))];
+  expect(compareSkill('s', olds, news).verdict).toBe('UNCHANGED');
+  expect(compareSkill('s', olds, news, () => [], 0.2).verdict).toBe('DEGRADED');
+  expect(compareSkill('s', olds, news, () => [], 0.25).verdict).toBe('UNCHANGED');
+  expect(compareSkill('s', olds, [...runs('new', 'a', k(4, 5)), ...runs('new', 'b', k(1, 5))], () => [], 0.2).verdict).toBe('REGRESSED');
+});

@@ -209,9 +209,9 @@ assertion 対応:
 | 2 | `suite.yaml` と引数解決 (CLI → suite → 既定 → 対話) | 実装・単体/CLI 統合テスト済み | `baseline_model`、`skills`、`runs`、`aggregate_drop_pt` を検証し、CLI 上書き・既定値・モデル入力に対応。`aggregate_drop_pt` の判定への適用は #6 |
 | 3 | judge を `anthropic:messages:*` に切り替え | Messages API に移行。`cost_usd.judge` は promptfoo が grader のドルコストを公開しないため `null` | `llm_rubric` 使用時は `ANTHROPIC_API_KEY` が必要。judge provider の変更で旧 cache を無効化 |
 | 4 | 発火 precision / recall と `trigger` セクション | 実装・単体テスト済み | `trigger` / `no-trigger` タグから旧/新モデルの precision / recall を集計し、発火正解率の回帰を Skill 判定に反映。曖昧な発火ケースは追加実行対象。レポートと verdicts.jsonl に trigger セクションを出力 |
-| 5 | LLM によるケース生成 (`generated`) | `resolveCases` は `generated` を空で返す | `<store>/generated/<skill>/<skill-hash>.yaml` に保存して再利用。`generated-cases` フラグは Reporter 側に実装済み |
-| 6 | DEGRADED 判定 | 未実装 | `aggregate_drop_pt` (suite.yaml) が要る。`aggregate` の合格率は Report に出力済み |
-| 7 | `skilldrift trend` | 未実装 | `verdicts.jsonl` (ケース行と `case: null` の Skill 行) をモデル順に並べるだけ |
+| 5 | LLM によるケース生成 (`generated`) | 実装・単体/CLI 統合テスト済み | `case_generator_model` (suite.yaml) / `--case-generator` で生成モデルを固定。§12 参照 |
+| 6 | DEGRADED 判定 | 実装・単体テスト済み | `aggregate_drop_pt` (suite.yaml) / `--aggregate-drop-pt` 指定時のみ判定。§13 参照 |
+| 7 | `skilldrift trend` | 実装・テスト済み | `verdicts.jsonl` の Skill 行 (`case: null`) を時系列に並べる。`--skill`、`--agent`、`--format md\|json` |
 | 8 | `skilldrift init` | 未実装 | `suite.yaml` の雛形生成。2 の後 |
 | 9 | `--max-cost-usd`、`--non-interactive` (exit 3)、`--webhook`、`--agent` | 未実装 | `--agent codex` はフェーズ 2 |
 | 10 | `/tmp` 出力の fixture 内パスへの書き換え | `bypassPermissions` で `/tmp` にそのまま書く | 並列実行時に Skill 同士が `/tmp` で衝突しうる |
@@ -248,3 +248,24 @@ Runner をモックした CLI 統合テストを追加し、実モデルを呼�
 - `trigger` タグを正例、`no-trigger` タグを負例として `triggered` の TP / FP / FN / TN、precision、recall を旧/新モデル別に算出。エラー run は分母から除外し、該当する予測または正例が無い場合の precision / recall は `null`。
 - 発火期待値に基づくケース別 Beta 比較を行い、曖昧なケースを既存の追加反復ループに含める。発火回帰は assertion ベースのケース結果と独立して Skill verdict / exit code に反映する。
 - Markdown レポートと JSON / `verdicts.jsonl` に発火集計とケース別判定を出力。`trigger` と `no-trigger` の両方が付いたケースは不正として拒否する。
+
+## 12. LLM によるケース生成 (2026-10-02)
+
+- `evals/cases.yaml` も `evals.json` も無い Skill は `src/cases/generate.ts` が `@anthropic-ai/claude-agent-sdk` の `query()` (`tools: []`、`maxTurns: 1`、`outputFormat: json_schema`) で SKILL.md からケースを生成する。Claude Code のログインで動き、API キーは不要。
+- 生成量は設計ノートどおり trigger 3 / no-trigger 2 / quality 3 に固定し、数が合わなければ失敗させる。ケース名は `trigger-1` のようにタグ連番で skilldrift 側が付け、assertion も `skill_used` / `skill_not_used` を skilldrift 側で付与する。quality ケースだけ生成モデルの `rubric` を `llm_rubric` にする。`files` は常に空。
+- 保存先は `<store>/generated/<skill>/<skill-hash>.yaml` (`hashDir` で `evals/` を除いた Skill ディレクトリのハッシュ)。同じハッシュなら再生成しない。`--old-skills-dir` で旧側の Skill が異なっても、新側で解決した生成ケースを旧側にもそのまま使う。
+- 生成モデルは `suite.yaml` の `case_generator_model`、または `--case-generator` で指定。既定は `claude-sonnet-5-5`。生成ケースは `cases_hash` に入るためキャッシュ鍵は自動で変わる。
+- `--dry-run` は生成せず `generated, pending` と表示する。`cases export <skill> --store <dir>` は Store の生成ケースを YAML で出力する (`evals/cases.yaml` へのリダイレクトで人手ケースに昇格)。
+- 合成 Skill `magic-word` で haiku による実機生成を 1 回確認した (8 ケース、タグと assertion が仕様どおり)。
+
+## 13. DEGRADED 判定 (2026-10-02)
+
+- `compareSkill` に `aggregateDropPt` (0〜1 の割合) を渡し、ケース単位・発火の REGRESSED が無く、`old_pass_rate - new_pass_rate >= aggregateDropPt` のとき Skill verdict を `DEGRADED` にする。優先順位は設計ノートの表どおり REGRESSED > DEGRADED > INCONCLUSIVE > IMPROVED > UNCHANGED。
+- 閾値が未指定 (suite.yaml にも CLI にも無い) なら判定しない。設計ノートの `aggregate_drop_pt: 3` (ポイント) ではなく、既に実装済みの 0〜1 の割合をそのまま使う。
+- 終了コードは設計ノートに DEGRADED の規定が無いため 2 (要確認) とし、CI ゲート (1) にはしない。
+
+## 14. `skilldrift trend` (2026-10-02)
+
+- `Store.skillVerdicts()` が `verdicts.jsonl` の Skill 行 (`case` が null または無い行) を `ts` 昇順で返す。順 4 時代の旧形式行 (`aggregate` 無し) も表示し、合格率は `n/a` にする。
+- 「モデル順」はモデル名で並べ替えられないため、実行時刻順 (= 比較を行った順) とした。
+- 出力は Skill ごとの Markdown 表 (When / Old / New / Verdict / Old pass / New pass / Flags) か `--format json` で行配列。

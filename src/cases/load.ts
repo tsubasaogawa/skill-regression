@@ -31,6 +31,6 @@ export function resolveCases(skillsDir: string, skill: string): SkillCases {
     const json = JSON.parse(readFileSync(jsonPath, 'utf8')) as EvalsJson;
     return { skill, dir, source: 'evals.json', cases: fromEvalsJson(json) };
   }
-  // ponytail: generated cases arrive in a later phase
+  // generated cases live in the store; see cli.ts resolveSkill
   return { skill, dir, source: 'generated', cases: [] };
 }

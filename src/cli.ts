@@ -4,6 +4,8 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stringify } from 'yaml';
 import { listSkills, resolveCases, type SkillCases } from './cases/load.js';
+import { generateCases } from './cases/generate.js';
+import type { Case } from './cases/types.js';
 import { DEFAULTS, JUDGE_PROVIDER } from './config/defaults.js';
 import { readSuiteConfig, resolveCompareConfig, selectSkills } from './config/suite.js';
 import { buildFixture } from './planner/fixture.js';
@@ -76,35 +78,45 @@ program
   .option('--runs <n>', 'runs per case per model')
   .option('--runs-max <n>', 'maximum runs per case per model (default: --runs)')
   .option('--judge <model>', 'judge model for llm_rubric', DEFAULTS.judgeModel)
+  .option('--case-generator <model>', 'model that generates cases for skills without evals (default: suite case_generator_model)')
   .option('--concurrency <n>', 'max concurrent runs', String(DEFAULTS.concurrency))
   .option('--store <dir>', 'store directory', DEFAULTS.store)
-  .option('--aggregate-drop-pt <n>', 'aggregate pass-rate drop threshold (0-1; verdict support is planned)')
+  .option('--aggregate-drop-pt <n>', 'aggregate pass-rate drop (0-1) at which a skill without regressed cases is DEGRADED')
   .option('--no-cache', 'rerun even if results for the same key exist')
   .option('--out <dir>', 'report directory (default: <store>/reports/claude/<new-model>/<timestamp>)')
   .option('--format <fmt>', 'md | json | both', DEFAULTS.format)
   .option('--dry-run', 'list skills and resolved cases without running')
-  .action(async (opts: { suite?: string; skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; oldSkillsDir?: string; runs?: string; runsMax?: string; judge: string; concurrency: string; store: string; aggregateDropPt?: string; cache: boolean; out?: string; format: string; dryRun?: boolean }) => {
+  .action(async (opts: { suite?: string; skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; oldSkillsDir?: string; runs?: string; runsMax?: string; judge: string; caseGenerator?: string; concurrency: string; store: string; aggregateDropPt?: string; cache: boolean; out?: string; format: string; dryRun?: boolean }) => {
     const suite = readSuiteConfig(opts.suite ?? DEFAULTS.suitePath, opts.suite === undefined);
     const availableSkills = listSkills(opts.skillsDir);
     const selectedSkills = selectSkills(opts.skill, suite, availableSkills);
-    const resolveSkill = (dir: string, s: string) => {
+    const store = new Store(opts.store);
+    const filterCase = (sc: SkillCases, cases: Case[] = sc.cases): SkillCases => ({ ...sc, cases: cases.filter((c) => !opts.case || c.name === opts.case) });
+    const resolveSkill = async (dir: string, s: string, generator?: string): Promise<SkillCases> => {
       const sc = resolveCases(dir, s);
-      return { ...sc, cases: sc.cases.filter((c) => !opts.case || c.name === opts.case) };
+      if (sc.source !== 'generated') return filterCase(sc);
+      const hash = hashDir(sc.dir);
+      let cases = store.loadGenerated(s, hash);
+      if (!cases && generator) {
+        console.error(`${s}: generating cases with ${generator}`);
+        cases = await generateCases(s, sc.dir, generator);
+        console.error(`${s}: saved generated cases to ${store.saveGenerated(s, hash, cases)}`);
+      }
+      return filterCase(sc, cases ?? []);
     };
     if (opts.dryRun) {
-      const skills = selectedSkills.map((s) => resolveSkill(opts.skillsDir, s));
-      for (const s of skills) console.log(`${s.skill.padEnd(36)} ${String(s.cases.length).padStart(3)} cases (${s.source})`);
+      const skills = await Promise.all(selectedSkills.map((s) => resolveSkill(opts.skillsDir, s)));
+      for (const s of skills) console.log(`${s.skill.padEnd(36)} ${String(s.cases.length).padStart(3)} cases (${s.source}${s.source === 'generated' && !s.cases.length ? ', pending' : ''})`);
       console.log(`\n${skills.length} skills, ${skills.reduce((n, s) => n + s.cases.length, 0)} cases`);
       return;
     }
     const config = await resolveCompareConfig({
-      old: opts.old, new: opts.new, skill: opts.skill, runs: opts.runs, aggregateDropPt: opts.aggregateDropPt,
+      old: opts.old, new: opts.new, skill: opts.skill, runs: opts.runs, aggregateDropPt: opts.aggregateDropPt, caseGenerator: opts.caseGenerator,
     }, suite, availableSkills, promptForModel);
     const names = config.skills;
     const oldModel = config.oldModel;
     const newModel = config.newModel;
     const claudeVersion = cliVersion('claude');
-    const store = new Store(opts.store);
     const runs = config.runs;
     const runsMax = opts.runsMax == null ? runs : Number(opts.runsMax);
     if (!Number.isInteger(runs) || runs < 1) return program.error('--runs must be a positive integer');
@@ -114,9 +126,9 @@ program
     const all = { old: [] as RunResult[], new: [] as RunResult[] };
     const reports: SkillReport[] = [];
     for (const name of names) {
-      const scNew = resolveSkill(sides.new.dir, name);
+      const scNew = await resolveSkill(sides.new.dir, name, config.caseGeneratorModel);
       if (!scNew.cases.length) continue;
-      const scOld = resolveSkill(sides.old.dir, name);
+      const scOld = scNew.source === 'generated' ? filterCase(resolveCases(sides.old.dir, name), scNew.cases) : await resolveSkill(sides.old.dir, name);
       const scBySide: Record<Side, SkillCases> = { old: scOld, new: scNew };
       const caseNames = [...new Set([...scOld.cases, ...scNew.cases].map((c) => c.name))];
       const results = { old: [] as RunResult[], new: [] as RunResult[] };
@@ -164,6 +176,7 @@ program
         totalRuns ? limitRuns(results.old, totalRuns) : results.old,
         totalRuns ? limitRuns(results.new, totalRuns) : results.new,
         tagsOf,
+        config.aggregateDropPt,
       );
       let comparison = compareCurrent();
       while (totalRuns < runsMax) {
@@ -207,9 +220,33 @@ program
   .argument('<skill>', 'skill name')
   .description('Print resolved cases of a skill as neutral-format YAML')
   .option('--skills-dir <dir>', 'skills directory', DEFAULTS.skillsDir)
-  .action((action: string, skill: string, opts: { skillsDir: string }) => {
+  .option('--store <dir>', 'store directory holding generated cases', DEFAULTS.store)
+  .action((action: string, skill: string, opts: { skillsDir: string; store: string }) => {
     if (action !== 'export') program.error(`unknown action: ${action}`);
-    process.stdout.write(stringify(resolveCases(opts.skillsDir, skill).cases));
+    const sc = resolveCases(opts.skillsDir, skill);
+    const cases = sc.source === 'generated' ? new Store(opts.store).loadGenerated(skill, hashDir(sc.dir)) : sc.cases;
+    if (!cases) return program.error(`no generated cases for ${skill}; run compare first`);
+    process.stdout.write(stringify(cases));
+  });
+
+program
+  .command('trend')
+  .description('List skill verdict history from the store, oldest first')
+  .option('--store <dir>', 'store directory', DEFAULTS.store)
+  .option('--skill <name>', 'only this skill')
+  .option('--agent <name>', 'only this agent', 'claude')
+  .option('--format <fmt>', 'md | json', 'md')
+  .action((opts: { store: string; skill?: string; agent: string; format: string }) => {
+    const rows = new Store(opts.store).skillVerdicts()
+      .filter((v) => (v.agent ?? 'claude') === opts.agent && (!opts.skill || v.skill === opts.skill));
+    if (opts.format === 'json') return console.log(JSON.stringify(rows, null, 2));
+    const pct = (x?: number) => x == null ? 'n/a' : `${Math.round(x * 100)}%`;
+    const lines: string[] = [];
+    for (const skill of [...new Set(rows.map((v) => v.skill))]) {
+      lines.push(`## ${skill}`, '', '| When | Old | New | Verdict | Old pass | New pass | Flags |', '| --- | --- | --- | --- | --- | --- | --- |',
+        ...rows.filter((v) => v.skill === skill).map((v) => `| ${v.ts.slice(0, 16).replace('T', ' ')} | ${v.old_model} | ${v.new_model} | ${v.verdict} | ${pct(v.aggregate?.old_pass_rate)} | ${pct(v.aggregate?.new_pass_rate)} | ${(v.flags ?? []).join(', ')} |`), '');
+    }
+    console.log(lines.length ? lines.join('\n') : 'no verdicts');
   });
 
 program

@@ -14,6 +14,7 @@ it('exit code: 1 only for deterministic regressions, 2 for inconclusive/partial'
   expect(exitCode([s([c('REGRESSED', true)])])).toBe(0);
   expect(exitCode([s([c('INCONCLUSIVE')])])).toBe(2);
   expect(exitCode([s([c('UNCHANGED', false, 1)])])).toBe(2);
+  expect(exitCode([{ ...s([c('UNCHANGED')]), verdict: 'DEGRADED' }])).toBe(2);
   expect(exitCode([s([c('UNCHANGED')])])).toBe(0);
 });
 

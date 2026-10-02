@@ -9,6 +9,7 @@ export const DEFAULTS = {
   fixturesDir: 'fixtures',
   runs: 1,
   judgeModel: 'claude-haiku-4-5-20251001',
+  caseGeneratorModel: 'claude-sonnet-5-5',
   concurrency: 2,
   store: '.skilldrift',
   format: 'both',
