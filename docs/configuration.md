@@ -16,6 +16,8 @@
 
 ## suite.yaml
 
+suite.yaml is optional. Create it with `init` when you want to stop repeating `--old`, `--runs`, and other options on every run, or to pin the settings in CI.
+
 ```yaml
 baseline_model: claude-sonnet-5-5
 # skills: [my-skill]            # defaults to all Skills under --skills-dir
