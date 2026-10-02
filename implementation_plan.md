@@ -213,7 +213,7 @@ assertion 対応:
 | 6 | DEGRADED 判定 | 実装・単体テスト済み | `aggregate_drop_pt` (suite.yaml) / `--aggregate-drop-pt` 指定時のみ判定。§13 参照 |
 | 7 | `skilldrift trend` | 実装・テスト済み | `verdicts.jsonl` の Skill 行 (`case: null`) を時系列に並べる。`--skill`、`--agent`、`--format md\|json` |
 | 8 | `skilldrift init` | 実装・テスト済み | `--baseline-model` (無ければ対話)、`--all-skills`、`--force`。§15 参照 |
-| 9 | `--max-cost-usd`、`--non-interactive` (exit 3)、`--webhook`、`--agent` | 未実装 | `--agent codex` はフェーズ 2 |
+| 9 | `--max-cost-usd`、`--non-interactive` (exit 3)、`--webhook`、`--agent` | `--agent` 以外は実装・CLI 統合テスト済み | `--agent codex` はフェーズ 2。§16 参照 |
 | 10 | `/tmp` 出力の fixture 内パスへの書き換え | `bypassPermissions` で `/tmp` にそのまま書く | 並列実行時に Skill 同士が `/tmp` で衝突しうる |
 | 11 | `low-power` フラグ | 未実装 | runs が少なく REGRESSED を検出しきれない場合の警告。閾値は設計ノートに無い |
 | 12 | README.md、LICENSE (MIT) | 未作成 | |
@@ -275,3 +275,9 @@ Runner をモックした CLI 統合テストを追加し、実モデルを呼�
 - `suite.yaml` の雛形を書く。`baseline_model` は `--baseline-model`、無ければ対話入力 (非 TTY なら `compare` と同じく失敗)。`runs` と `case_generator_model` は既定値入り、`aggregate_drop_pt` はコメントアウト。
 - `skills` は既定で省略 (= 全 Skill 対象)。`--all-skills` で `--skills-dir` 配下の全 Skill を明示的に列挙する。設計ノートの「対象 Skill を対話で尋ねる」は省略した。
 - 既存ファイルは `--force` 無しでは上書きしない。フェーズ 1 は Claude のみのため `--agent` は無い。
+
+## 16. `--non-interactive` / `--max-cost-usd` / `--webhook` (2026-10-02)
+
+- 入力エラー (suite.yaml 不正、Skill 不在、非対話または非 TTY でモデル未指定) は `program.error(..., { exitCode: 3 })` で終了コード 3。`--non-interactive` は TTY でも対話しない。`init` の対話入力失敗も 3。
+- `--max-cost-usd` (または suite.yaml の `max_cost_usd`) は事前見積りではなく実績ベースの上限。Skill を 1 つ処理するごとに `cost_usd` を加算し、上限に達したら以降の Skill を開始せず `skipped_skills` に記録して終了コード 2 (計画の一部が未実行)。実行中の Skill は中断しないため、上限をいくらか超えうる。Claude Code のログイン実行では表示価格の見積りに対する上限で、プラン使用量の上限ではない。
+- `--webhook <url>` (または `SKILLDRIFT_WEBHOOK_URL`) に `{ text }` を POST する (Slack Incoming Webhook 互換)。本文は Skill ごとの verdict とフラグ、スキップ Skill、`report.md` のパス。送信失敗は標準エラーに出すだけで終了コードは変えない。

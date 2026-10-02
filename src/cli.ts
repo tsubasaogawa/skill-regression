@@ -13,7 +13,7 @@ import { runSkill, runSkillCase } from './runner/promptfoo.js';
 import { compareSkill } from './comparator/verdict.js';
 import { hashCases, hashDir } from './cases/hash.js';
 import { cacheKey, Store } from './store/store.js';
-import { buildReport, exitCode, skillFlags, toMarkdown, type SkillReport } from './reporter/report.js';
+import { buildReport, skillFlags, toMarkdown, type Report, type SkillReport } from './reporter/report.js';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { cliVersion } from './runner/version.js';
 import type { RunResult } from './runner/types.js';
@@ -22,8 +22,11 @@ import { fileURLToPath } from 'node:url';
 export const program = new Command().name('skilldrift').version('0.1.0');
 type Side = 'old' | 'new';
 
-async function promptForModel(label: string): Promise<string> {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+const INPUT_ERROR = 3;
+const inputError = (e: unknown): never => program.error(e instanceof Error ? e.message : String(e), { exitCode: INPUT_ERROR });
+
+async function promptForModel(label: string, interactive = true): Promise<string> {
+  if (!interactive || !process.stdin.isTTY || !process.stdout.isTTY) {
     const guidance = label === 'Baseline model' ? 'pass --old or set baseline_model in suite.yaml' : 'pass --new';
     throw new Error(`${label} is required; ${guidance}`);
   }
@@ -83,13 +86,20 @@ program
   .option('--store <dir>', 'store directory', DEFAULTS.store)
   .option('--aggregate-drop-pt <n>', 'aggregate pass-rate drop (0-1) at which a skill without regressed cases is DEGRADED')
   .option('--no-cache', 'rerun even if results for the same key exist')
+  .option('--non-interactive', 'never prompt; exit 3 when a required value is missing')
+  .option('--max-cost-usd <n>', 'stop starting new skills once reported cost reaches this amount (default: suite max_cost_usd)')
+  .option('--webhook <url>', 'POST a summary to this URL (default: SKILLDRIFT_WEBHOOK_URL)')
   .option('--out <dir>', 'report directory (default: <store>/reports/claude/<new-model>/<timestamp>)')
   .option('--format <fmt>', 'md | json | both', DEFAULTS.format)
   .option('--dry-run', 'list skills and resolved cases without running')
-  .action(async (opts: { suite?: string; skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; oldSkillsDir?: string; runs?: string; runsMax?: string; judge: string; caseGenerator?: string; concurrency: string; store: string; aggregateDropPt?: string; cache: boolean; out?: string; format: string; dryRun?: boolean }) => {
-    const suite = readSuiteConfig(opts.suite ?? DEFAULTS.suitePath, opts.suite === undefined);
-    const availableSkills = listSkills(opts.skillsDir);
-    const selectedSkills = selectSkills(opts.skill, suite, availableSkills);
+  .action(async (opts: { suite?: string; skillsDir: string; fixturesDir: string; skill?: string; case?: string; old?: string; new?: string; oldSkillsDir?: string; runs?: string; runsMax?: string; judge: string; caseGenerator?: string; concurrency: string; store: string; aggregateDropPt?: string; cache: boolean; nonInteractive?: boolean; maxCostUsd?: string; webhook?: string; out?: string; format: string; dryRun?: boolean }) => {
+    const { suite, availableSkills, selectedSkills } = (() => {
+      try {
+        const suite = readSuiteConfig(opts.suite ?? DEFAULTS.suitePath, opts.suite === undefined);
+        const availableSkills = listSkills(opts.skillsDir);
+        return { suite, availableSkills, selectedSkills: selectSkills(opts.skill, suite, availableSkills) };
+      } catch (e) { return inputError(e); }
+    })();
     const store = new Store(opts.store);
     const filterCase = (sc: SkillCases, cases: Case[] = sc.cases): SkillCases => ({ ...sc, cases: cases.filter((c) => !opts.case || c.name === opts.case) });
     const resolveSkill = async (dir: string, s: string, generator?: string): Promise<SkillCases> => {
@@ -111,8 +121,8 @@ program
       return;
     }
     const config = await resolveCompareConfig({
-      old: opts.old, new: opts.new, skill: opts.skill, runs: opts.runs, aggregateDropPt: opts.aggregateDropPt, caseGenerator: opts.caseGenerator,
-    }, suite, availableSkills, promptForModel);
+      old: opts.old, new: opts.new, skill: opts.skill, runs: opts.runs, aggregateDropPt: opts.aggregateDropPt, caseGenerator: opts.caseGenerator, maxCostUsd: opts.maxCostUsd,
+    }, suite, availableSkills, (label) => promptForModel(label, !opts.nonInteractive)).catch(inputError);
     const names = config.skills;
     const oldModel = config.oldModel;
     const newModel = config.newModel;
@@ -125,7 +135,10 @@ program
     const sides = { old: { model: oldModel, dir: opts.oldSkillsDir ?? opts.skillsDir }, new: { model: newModel, dir: opts.skillsDir } } as const;
     const all = { old: [] as RunResult[], new: [] as RunResult[] };
     const reports: SkillReport[] = [];
+    const skipped: string[] = [];
+    let spent = 0;
     for (const name of names) {
+      if (config.maxCostUsd !== undefined && spent >= config.maxCostUsd) { skipped.push(name); continue; }
       const scNew = await resolveSkill(sides.new.dir, name, config.caseGeneratorModel);
       if (!scNew.cases.length) continue;
       const scOld = scNew.source === 'generated' ? filterCase(resolveCases(sides.old.dir, name), scNew.cases) : await resolveSkill(sides.old.dir, name);
@@ -146,6 +159,7 @@ program
             onProgress: (c, t) => console.error(`${label}: ${c}/${t}`),
           }, claudeVersion);
         const appended = reindexResults(results[side], fresh.results);
+        spent += appended.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
         store.saveRaw(name, fresh.raw);
         store.appendResults(keys[side], appended);
         results[side].push(...appended);
@@ -204,15 +218,33 @@ program
       all.new.push(...results.new);
       reports.push(sr);
     }
-    const report = buildReport(reports, all, { oldModel, newModel, startedAt, claudeVersion });
+    if (skipped.length) console.error(`cost cap $${config.maxCostUsd} reached after $${spent.toFixed(2)}; skipped: ${skipped.join(', ')}`);
+    const report = buildReport(reports, all, { oldModel, newModel, startedAt, claudeVersion, skipped });
     const out = opts.out ?? join(opts.store, 'reports', 'claude', newModel, startedAt.toISOString().replace(/[:.]/g, '-'));
     mkdirSync(out, { recursive: true });
     if (opts.format !== 'json') writeFileSync(join(out, 'report.md'), toMarkdown(report));
     if (opts.format !== 'md') writeFileSync(join(out, 'report.json'), JSON.stringify(report, null, 2));
     if (opts.format === 'json') console.log(JSON.stringify(report, null, 2));
     else { console.log(toMarkdown(report)); console.error(`report: ${out}`); }
-    process.exitCode = exitCode(reports);
+    process.exitCode = report.exit_code;
+    const webhook = opts.webhook ?? process.env.SKILLDRIFT_WEBHOOK_URL;
+    if (webhook) await postWebhook(webhook, report, join(out, 'report.md'));
   });
+
+async function postWebhook(url: string, report: Report, reportPath: string): Promise<void> {
+  const text = [
+    `skilldrift: ${report.old_model} → ${report.new_model} (exit ${report.exit_code})`,
+    ...report.skills.map((s) => `- ${s.name}: ${s.verdict}${s.flags.length ? ` [${s.flags.join(', ')}]` : ''}`),
+    ...(report.skipped_skills?.length ? [`skipped (cost cap): ${report.skipped_skills.join(', ')}`] : []),
+    reportPath,
+  ].join('\n');
+  try {
+    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+    if (!res.ok) console.error(`webhook ${url} responded ${res.status}`);
+  } catch (e) {
+    console.error(`webhook ${url} failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
 
 program
   .command('cases')
@@ -254,7 +286,7 @@ program
   .option('--force', 'overwrite an existing file')
   .action(async (opts: { suite: string; baselineModel?: string; skillsDir: string; allSkills?: boolean; force?: boolean }) => {
     if (existsSync(opts.suite) && !opts.force) return program.error(`${opts.suite} already exists; pass --force to overwrite`);
-    const baselineModel = opts.baselineModel ?? await promptForModel('Baseline model');
+    const baselineModel = opts.baselineModel ?? await promptForModel('Baseline model').catch(inputError);
     const skills = opts.allSkills ? listSkills(opts.skillsDir) : [];
     writeFileSync(opts.suite, suiteTemplate({ baselineModel, skills }));
     console.error(`wrote ${opts.suite}`);

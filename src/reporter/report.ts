@@ -12,7 +12,7 @@ export interface Report {
   old_model: string; new_model: string; claude_version?: string;
   started_at: string; finished_at: string;
   cost_usd: { old: number; new: number; judge: number | null };
-  exit_code: number; skills: SkillReport[];
+  exit_code: number; skills: SkillReport[]; skipped_skills?: string[];
 }
 
 export function skillFlags(sc: SkillComparison, source: CaseSource): Flag[] {
@@ -23,17 +23,18 @@ export function skillFlags(sc: SkillComparison, source: CaseSource): Flag[] {
   return f;
 }
 
-/** 0 = no regression, 1 = regression on a deterministic case, 2 = degraded, inconclusive or partial. Judge-dependent regressions are report-only. */
-export function exitCode(skills: SkillReport[]): number {
+/** 0 = no regression, 1 = regression on a deterministic case, 2 = degraded, inconclusive, partial or skipped. Judge-dependent regressions are report-only. */
+export function exitCode(skills: SkillReport[], skipped: string[] = []): number {
   const cases = skills.flatMap((s) => s.cases);
   if (cases.some((c) => c.verdict === 'REGRESSED' && !c.judge_dependent)
     || skills.some((s) => s.trigger?.verdict === 'REGRESSED')) return 1;
   if (cases.some((c) => c.verdict === 'INCONCLUSIVE')
+    || skipped.length
     || skills.some((s) => s.verdict === 'DEGRADED' || s.trigger?.verdict === 'INCONCLUSIVE' || s.flags.includes('partial'))) return 2;
   return 0;
 }
 
-export function buildReport(skills: SkillReport[], results: { old: RunResult[]; new: RunResult[] }, o: { oldModel: string; newModel: string; startedAt: Date; claudeVersion?: string }): Report {
+export function buildReport(skills: SkillReport[], results: { old: RunResult[]; new: RunResult[] }, o: { oldModel: string; newModel: string; startedAt: Date; claudeVersion?: string; skipped?: string[] }): Report {
   const cost = (rs: RunResult[]) => rs.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
   return {
     skilldrift_version: require('../../package.json').version,
@@ -42,7 +43,8 @@ export function buildReport(skills: SkillReport[], results: { old: RunResult[]; 
     ...(o.claudeVersion ? { claude_version: o.claudeVersion } : {}),
     started_at: o.startedAt.toISOString(), finished_at: new Date().toISOString(),
     cost_usd: { old: cost(results.old), new: cost(results.new), judge: null },
-    exit_code: exitCode(skills), skills,
+    exit_code: exitCode(skills, o.skipped), skills,
+    ...(o.skipped?.length ? { skipped_skills: o.skipped } : {}),
   };
 }
 
@@ -53,6 +55,7 @@ export function toMarkdown(r: Report): string {
   const judgeCost = r.cost_usd.judge == null ? 'unavailable' : `$${r.cost_usd.judge.toFixed(2)}`;
   const lines = [
     `# skilldrift: ${r.old_model} → ${r.new_model}`, '',
+    ...(r.skipped_skills?.length ? [`skipped (cost cap): ${r.skipped_skills.join(', ')}`, ''] : []),
     `exit code ${r.exit_code}, cost old $${r.cost_usd.old.toFixed(2)} / new $${r.cost_usd.new.toFixed(2)} / judge ${judgeCost}, claude ${r.claude_version ?? '?'}, promptfoo ${r.promptfoo_version}`, '',
     '| Skill | Verdict | Old | New | Flags |', '| --- | --- | --- | --- | --- |',
     ...r.skills.map((s) => `| ${s.name} | ${s.verdict} | ${pct(s.aggregate.old_pass_rate)} | ${pct(s.aggregate.new_pass_rate)} | ${s.flags.join(', ')} |`),

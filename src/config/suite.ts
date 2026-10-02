@@ -8,6 +8,7 @@ export interface SuiteConfig {
   runs?: number;
   aggregate_drop_pt?: number;
   case_generator_model?: string;
+  max_cost_usd?: number;
 }
 
 export interface CompareOverrides {
@@ -17,6 +18,7 @@ export interface CompareOverrides {
   runs?: string;
   aggregateDropPt?: string;
   caseGenerator?: string;
+  maxCostUsd?: string;
 }
 
 export interface ResolvedCompareConfig {
@@ -26,6 +28,7 @@ export interface ResolvedCompareConfig {
   runs: number;
   aggregateDropPt?: number;
   caseGeneratorModel: string;
+  maxCostUsd?: number;
 }
 
 type ModelPrompt = (label: string) => Promise<string>;
@@ -55,11 +58,19 @@ function dropThreshold(value: unknown, label: string): number {
   return number;
 }
 
+function nonNegative(value: unknown, label: string): number {
+  const number = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && value.trim() ? Number(value) : Number.NaN;
+  if (!Number.isFinite(number) || number < 0) throw new Error(`${label} must be a non-negative number`);
+  return number;
+}
+
 export function parseSuiteConfig(value: unknown): SuiteConfig {
   if (value == null) return {};
   if (!isRecord(value)) throw new Error('suite.yaml must contain a mapping');
 
-  const allowed = new Set(['baseline_model', 'skills', 'runs', 'aggregate_drop_pt', 'case_generator_model']);
+  const allowed = new Set(['baseline_model', 'skills', 'runs', 'aggregate_drop_pt', 'case_generator_model', 'max_cost_usd']);
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length) throw new Error(`unknown suite.yaml field${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}`);
 
@@ -84,6 +95,10 @@ export function parseSuiteConfig(value: unknown): SuiteConfig {
   }
   if (value.case_generator_model !== undefined) {
     config.case_generator_model = nonEmptyString(value.case_generator_model, 'case_generator_model');
+  }
+  if (value.max_cost_usd !== undefined) {
+    if (typeof value.max_cost_usd !== 'number') throw new Error('max_cost_usd must be a non-negative number');
+    config.max_cost_usd = nonNegative(value.max_cost_usd, 'max_cost_usd');
   }
   return config;
 }
@@ -127,6 +142,10 @@ export async function resolveCompareConfig(
     ? suite.aggregate_drop_pt
     : dropThreshold(cli.aggregateDropPt, '--aggregate-drop-pt');
 
+  const maxCostUsd = cli.maxCostUsd === undefined
+    ? suite.max_cost_usd
+    : nonNegative(cli.maxCostUsd, '--max-cost-usd');
+
   return {
     oldModel,
     newModel,
@@ -136,5 +155,6 @@ export async function resolveCompareConfig(
       ? (suite.case_generator_model ?? DEFAULTS.caseGeneratorModel)
       : nonEmptyString(cli.caseGenerator, '--case-generator'),
     ...(aggregateDropPt === undefined ? {} : { aggregateDropPt }),
+    ...(maxCostUsd === undefined ? {} : { maxCostUsd }),
   };
 }
