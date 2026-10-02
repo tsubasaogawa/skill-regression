@@ -214,7 +214,7 @@ assertion 対応:
 | 7 | `skilldrift trend` | 実装・テスト済み | `verdicts.jsonl` の Skill 行 (`case: null`) を時系列に並べる。`--skill`、`--agent`、`--format md\|json` |
 | 8 | `skilldrift init` | 実装・テスト済み | `--baseline-model` (無ければ対話)、`--all-skills`、`--force`。§15 参照 |
 | 9 | `--max-cost-usd`、`--non-interactive` (exit 3)、`--webhook`、`--agent` | `--agent` 以外は実装・CLI 統合テスト済み | `--agent codex` はフェーズ 2。§16 参照 |
-| 10 | `/tmp` 出力の fixture 内パスへの書き換え | `bypassPermissions` で `/tmp` にそのまま書く | 並列実行時に Skill 同士が `/tmp` で衝突しうる |
+| 10 | `/tmp` 出力の fixture 内パスへの書き換え | 実装・単体テスト済み | Runner が prompt と assertion の `/tmp` を `<fixture>/tmp` に書き換える。§17 参照 |
 | 11 | `low-power` フラグ | 未実装 | runs が少なく REGRESSED を検出しきれない場合の警告。閾値は設計ノートに無い |
 | 12 | README.md、LICENSE (MIT) | 未作成 | |
 | 13 | `raw/` ディレクトリの削除 | 順 4 の残骸。`.skilldrift/raw/` に移行済み | 手動で `rm -rf raw/` |
@@ -281,3 +281,10 @@ Runner をモックした CLI 統合テストを追加し、実モデルを呼�
 - 入力エラー (suite.yaml 不正、Skill 不在、非対話または非 TTY でモデル未指定) は `program.error(..., { exitCode: 3 })` で終了コード 3。`--non-interactive` は TTY でも対話しない。`init` の対話入力失敗も 3。
 - `--max-cost-usd` (または suite.yaml の `max_cost_usd`) は事前見積りではなく実績ベースの上限。Skill を 1 つ処理するごとに `cost_usd` を加算し、上限に達したら以降の Skill を開始せず `skipped_skills` に記録して終了コード 2 (計画の一部が未実行)。実行中の Skill は中断しないため、上限をいくらか超えうる。Claude Code のログイン実行では表示価格の見積りに対する上限で、プラン使用量の上限ではない。
 - `--webhook <url>` (または `SKILLDRIFT_WEBHOOK_URL`) に `{ text }` を POST する (Slack Incoming Webhook 互換)。本文は Skill ごとの verdict とフラグ、スキップ Skill、`report.md` のパス。送信失敗は標準エラーに出すだけで終了コードは変えない。
+
+## 17. `/tmp` 出力の fixture 内パスへの書き換え (2026-10-02)
+
+- Runner (`toTestSuite`) が promptfoo へ渡す直前に、prompt と assertion (regex / contains / file_exists / llm_rubric) の `/tmp` を `<fixture>/tmp` に書き換える。中立形式のケースは変更しないため `cases_hash` とキャッシュ鍵は変わらない。`/tmpfoo`、`./tmp`、`/var/tmp` は対象外。
+- fixture 生成時に `<fixture>/tmp/` を空で作る。fixture は `runFresh` ごとに作り直すので、バッチ間での残骸は無い。
+- 同一バッチ内の反復で前回の出力ファイルが残る問題は、`file_exists.js` が存在確認後にファイルを削除することで防ぐ (`ponytail:` コメント)。同じケースの反復が並列実行された場合の競合は許容。
+- `permission_mode` は `bypassPermissions` のまま。書き込み先が fixture 内になったので `acceptEdits` に戻せる可能性があるが未確認。

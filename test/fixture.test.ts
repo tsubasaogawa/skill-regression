@@ -15,7 +15,7 @@ it('builds fixture with both skill copies, case files and assets', () => {
 
   const root = buildFixture(resolveCases(join(tmp, 'skills'), 's'), join(tmp, 'fixtures'));
 
-  for (const f of ['.claude/skills/s/SKILL.md', '.agents/skills/s/SKILL.md', 'evals/files/in.md', 'assets/file_exists.js']) {
+  for (const f of ['.claude/skills/s/SKILL.md', '.agents/skills/s/SKILL.md', 'evals/files/in.md', 'assets/file_exists.js', 'tmp']) {
     expect(existsSync(join(root, f)), f).toBe(true);
   }
   expect(existsSync(join(root, '.claude/skills/s/evals'))).toBe(false);

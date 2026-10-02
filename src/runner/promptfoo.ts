@@ -23,14 +23,20 @@ export function assertJudgeApiKey(sc: SkillCases): void {
   }
 }
 
+/** Rewrite bare /tmp paths into <workingDir>/tmp so parallel skills and repeated runs do not share files. */
+export function relocateTmp(text: string, workingDir: string): string {
+  return text.replace(/(?<![\w/.-])\/tmp(?![\w-])/g, `${workingDir}/tmp`);
+}
+
 export function toAssertion(a: Assertion, skill: string, workingDir: string) {
+  const tmp = (s: string) => relocateTmp(s, workingDir);
   switch (a.type) {
     case 'skill_used': return { type: 'skill-used', value: skill };
     case 'skill_not_used': return { type: 'not-skill-used', value: skill };
-    case 'regex': return { type: 'regex', value: a.pattern };
-    case 'contains': return { type: 'icontains', value: a.value };
-    case 'file_exists': return { type: 'javascript', value: 'file://assets/file_exists.js', config: { path: a.path, working_dir: workingDir } };
-    case 'llm_rubric': return { type: 'llm-rubric', value: a.rubric };
+    case 'regex': return { type: 'regex', value: tmp(a.pattern) };
+    case 'contains': return { type: 'icontains', value: tmp(a.value) };
+    case 'file_exists': return { type: 'javascript', value: 'file://assets/file_exists.js', config: { path: tmp(a.path), working_dir: workingDir } };
+    case 'llm_rubric': return { type: 'llm-rubric', value: tmp(a.rubric) };
   }
 }
 
@@ -42,7 +48,7 @@ export function toTestSuite(sc: SkillCases, o: RunOptions): EvaluateTestSuite {
     defaultTest: { options: { provider: `${JUDGE_PROVIDER}:${o.judgeModel}` } },
     tests: sc.cases.map((c) => ({
       description: c.name,
-      vars: { prompt: c.prompt },
+      vars: { prompt: relocateTmp(c.prompt, o.workingDir) },
       metadata: { tags: c.tags },
       assert: c.assertions.map((a) => toAssertion(a, sc.skill, o.workingDir)),
     })),

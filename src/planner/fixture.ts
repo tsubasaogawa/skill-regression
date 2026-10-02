@@ -16,5 +16,6 @@ export function buildFixture(sc: SkillCases, fixturesRoot: string): string {
     cpSync(join(sc.dir, f), join(root, f));
   }
   cpSync(ASSETS_DIR, join(root, 'assets'), { recursive: true });
+  mkdirSync(join(root, 'tmp'));
   return root;
 }
