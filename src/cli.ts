@@ -8,24 +8,24 @@ import { stringify } from 'yaml';
 import { generateCases } from './cases/generate.js';
 import { hashCases, hashCaseInputs, hashDir, hashSkillMd } from './cases/hash.js';
 import { listSkills, resolveCases, validateCases, type SkillCases } from './cases/load.js';
-import type { Case } from './cases/types.js';
 import { compareSkill } from './comparator/verdict.js';
 import { DEFAULTS, JUDGE_PROVIDER } from './config/defaults.js';
-import { readSuiteConfig, resolveCompareConfig, selectSkills } from './config/suite.js';
+import { readSuiteConfig, resolveCompareConfig, selectSkills, type CompareOverrides } from './config/suite.js';
 import { buildFixture } from './planner/fixture.js';
-import { buildReport, skillFlags, toMarkdown, totalCost, type Report, type SkillReport } from './reporter/report.js';
+import { buildReport, pct, skillFlags, toMarkdown, totalCost, VERSION, type Report, type SkillReport } from './reporter/report.js';
 import { runSkill, runSkillCase, type RunOptions } from './runner/promptfoo.js';
 import type { RunResult } from './runner/types.js';
 import { cliVersion } from './runner/version.js';
 import { cacheKey, Store } from './store/store.js';
 
-export const program = new Command().name('skilldrift').version('0.1.0').exitOverride();
+export const program = new Command().name('skilldrift').version(VERSION).exitOverride();
 
 const SIDES = ['old', 'new'] as const;
 type Side = typeof SIDES[number];
 
 const INPUT_ERROR = 3;
 const inputError = (e: unknown): never => program.error(e instanceof Error ? e.message : String(e), { exitCode: INPUT_ERROR });
+const guard = <T>(fn: () => T): T => { try { return fn(); } catch (e) { return inputError(e); } };
 const MODEL_HINT: Record<string, string> = { 'Baseline model': 'pass --old or set baseline_model in suite.yaml', 'Candidate model': 'pass --new' };
 
 async function promptForModel(label: string, interactive = true): Promise<string> {
@@ -66,11 +66,24 @@ function reindexResults(existing: RunResult[], fresh: RunResult[]): RunResult[] 
   });
 }
 
-interface CompareOpts {
-  suite?: string; skillsDir: string; fixturesDir: string; skill?: string; case?: string;
-  old?: string; new?: string; oldSkillsDir?: string; runs?: string; runsMax?: string;
-  judge: string; caseGenerator?: string; concurrency: string; store: string; aggregateDropPt?: string;
-  cache: boolean; nonInteractive?: boolean; maxCostUsd?: string; webhook?: string; out?: string; format: string; dryRun?: boolean;
+/** Cases for a skill; generated ones come from the store, or from `generator` when not stored yet. */
+async function loadSkill(store: Store, dir: string, skill: string, generator?: string): Promise<SkillCases> {
+  const sc = resolveCases(dir, skill);
+  if (sc.source !== 'generated') return sc;
+  const hash = hashSkillMd(sc.dir);
+  let cases = store.loadGenerated(skill, hash);
+  if (!cases && generator) {
+    console.error(`${skill}: generating cases with ${generator}`);
+    cases = await generateCases(skill, sc.dir, generator);
+    console.error(`${skill}: saved generated cases to ${store.saveGenerated(skill, hash, cases)}`);
+  }
+  return { ...sc, cases: cases ? validateCases(cases, sc.dir) : [] };
+}
+
+interface CompareOpts extends CompareOverrides {
+  suite?: string; skillsDir: string; fixturesDir: string; case?: string; oldSkillsDir?: string; runsMax?: string;
+  judge: string; concurrency: string; store: string; cache: boolean; nonInteractive?: boolean;
+  webhook?: string; out?: string; format: string; dryRun?: boolean;
 }
 
 program
@@ -101,26 +114,15 @@ program
   .action(compare);
 
 async function compare(opts: CompareOpts): Promise<void> {
-  const { suite, availableSkills, selectedSkills } = (() => {
-    try {
-      const suite = readSuiteConfig(opts.suite ?? DEFAULTS.suitePath, opts.suite === undefined);
-      const availableSkills = listSkills(opts.skillsDir);
-      return { suite, availableSkills, selectedSkills: selectSkills(opts.skill, suite, availableSkills) };
-    } catch (e) { return inputError(e); }
-  })();
+  const { suite, availableSkills, selectedSkills } = guard(() => {
+    const suite = readSuiteConfig(opts.suite ?? DEFAULTS.suitePath, opts.suite === undefined);
+    const availableSkills = listSkills(opts.skillsDir);
+    return { suite, availableSkills, selectedSkills: selectSkills(opts.skill, suite, availableSkills) };
+  });
   const store = new Store(opts.store);
-  const filterCase = (sc: SkillCases, cases: Case[] = sc.cases): SkillCases => ({ ...sc, cases: cases.filter((c) => !opts.case || c.name === opts.case) });
   const resolveSkill = async (dir: string, skill: string, generator?: string): Promise<SkillCases> => {
-    const sc = resolveCases(dir, skill);
-    if (sc.source !== 'generated') return filterCase(sc);
-    const hash = hashSkillMd(sc.dir);
-    let cases = store.loadGenerated(skill, hash);
-    if (!cases && generator) {
-      console.error(`${skill}: generating cases with ${generator}`);
-      cases = await generateCases(skill, sc.dir, generator);
-      console.error(`${skill}: saved generated cases to ${store.saveGenerated(skill, hash, cases)}`);
-    }
-    return filterCase(sc, cases ? validateCases(cases, sc.dir) : []);
+    const sc = await loadSkill(store, dir, skill, generator);
+    return { ...sc, cases: sc.cases.filter((c) => !opts.case || c.name === opts.case) };
   };
 
   if (opts.dryRun) {
@@ -144,7 +146,7 @@ async function compare(opts: CompareOpts): Promise<void> {
     return sc;
   })).catch(inputError);
   if (opts.case && !resolvedSkills.some((s) => s.cases.length || s.source === 'generated')) return inputError(`case not found: ${opts.case}`);
-  const claudeVersion = cliVersion('claude');
+  const claudeVersion = cliVersion();
   const startedAt = new Date();
   const sides = { old: { model: oldModel, dir: opts.oldSkillsDir ?? opts.skillsDir }, new: { model: newModel, dir: opts.skillsDir } };
   const all = { old: [] as RunResult[], new: [] as RunResult[] };
@@ -262,17 +264,11 @@ program
   .description('Print resolved cases of a skill as neutral-format YAML')
   .option('--skills-dir <dir>', 'skills directory', DEFAULTS.skillsDir)
   .option('--store <dir>', 'store directory holding generated cases', DEFAULTS.store)
-  .action((action: string, skill: string, opts: { skillsDir: string; store: string }) => {
+  .action(async (action: string, skill: string, opts: { skillsDir: string; store: string }) => {
     if (action !== 'export') return inputError(`unknown action: ${action}`);
-    const cases = (() => {
-      try {
-        const sc = resolveCases(opts.skillsDir, skill);
-        const cases = sc.source === 'generated' ? new Store(opts.store).loadGenerated(skill, hashSkillMd(sc.dir)) : sc.cases;
-        return cases ? validateCases(cases, sc.dir) : undefined;
-      } catch (e) { return inputError(e); }
-    })();
-    if (!cases) return inputError(`no generated cases for ${skill}; run compare first`);
-    process.stdout.write(stringify(cases));
+    const sc = await loadSkill(new Store(opts.store), opts.skillsDir, skill).catch(inputError);
+    if (!sc.cases.length) return inputError(`no generated cases for ${skill}; run compare first`);
+    process.stdout.write(stringify(sc.cases));
   });
 
 export function suiteTemplate(o: { baselineModel: string; skills: string[] }): string {
@@ -301,7 +297,7 @@ program
   .action(async (opts: { suite: string; baselineModel?: string; skillsDir: string; allSkills?: boolean; force?: boolean }) => {
     if (existsSync(opts.suite) && !opts.force) return inputError(`${opts.suite} already exists; pass --force to overwrite`);
     const baselineModel = opts.baselineModel ?? await promptForModel('Baseline model').catch(inputError);
-    const skills = (() => { try { return opts.allSkills ? listSkills(opts.skillsDir) : []; } catch (e) { return inputError(e); } })();
+    const skills = guard(() => opts.allSkills ? listSkills(opts.skillsDir) : []);
     writeFileSync(opts.suite, suiteTemplate({ baselineModel, skills }));
     console.error(`wrote ${opts.suite}`);
   });
@@ -318,7 +314,6 @@ program
     const rows = new Store(opts.store).skillVerdicts()
       .filter((v) => (v.agent ?? 'claude') === opts.agent && (!opts.skill || v.skill === opts.skill));
     if (opts.format === 'json') return console.log(JSON.stringify(rows, null, 2));
-    const pct = (x?: number) => x == null ? 'n/a' : `${Math.round(x * 100)}%`;
     const lines = [...new Set(rows.map((v) => v.skill))].flatMap((skill) => [
       `## ${skill}`, '', '| When | Old | New | Verdict | Old pass | New pass | Flags |', '| --- | --- | --- | --- | --- | --- | --- |',
       ...rows.filter((v) => v.skill === skill).map((v) => `| ${v.ts.slice(0, 16).replace('T', ' ')} | ${v.old_model} | ${v.new_model} | ${v.verdict} | ${pct(v.aggregate?.old_pass_rate)} | ${pct(v.aggregate?.new_pass_rate)} | ${(v.flags ?? []).join(', ')} |`),
@@ -334,8 +329,7 @@ program
   .option('--skills-dir <dir>', 'skills directory', DEFAULTS.skillsDir)
   .option('--fixtures-dir <dir>', 'fixtures root', DEFAULTS.fixturesDir)
   .action((skill: string, opts: { skillsDir: string; fixturesDir: string }) => {
-    const sc = (() => { try { return resolveCases(opts.skillsDir, skill); } catch (e) { return inputError(e); } })();
-    console.log(buildFixture(sc, opts.fixturesDir));
+    console.log(buildFixture(guard(() => resolveCases(opts.skillsDir, skill)), opts.fixturesDir));
   });
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

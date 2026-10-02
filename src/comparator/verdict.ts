@@ -37,8 +37,7 @@ function tally(rs: RunResult[], passed: (r: RunResult) => boolean): Tally {
 function judge(old: Tally, newer: Tally): { verdict: CaseVerdict; needsMoreRuns: boolean; p_reg: number } {
   if (!old.runs || !newer.runs) return { verdict: 'INCONCLUSIVE', needsMoreRuns: false, p_reg: 0.5 };
   const p_reg = pRegressed(old.passed, old.runs, newer.passed, newer.runs);
-  const verdict = toInternalVerdict(p_reg);
-  return { verdict: verdict === 'AMBIGUOUS' ? 'INCONCLUSIVE' : verdict, needsMoreRuns: verdict === 'AMBIGUOUS', p_reg };
+  return { verdict: toVerdict(p_reg), needsMoreRuns: toInternalVerdict(p_reg) === 'AMBIGUOUS', p_reg };
 }
 
 function triggerExpectation(name: string, tags: string[]): boolean | undefined {
@@ -64,8 +63,8 @@ function triggerMetrics(rs: RunResult[], expectations: Map<string, boolean>): Tr
 
 export function compareCase(name: string, olds: RunResult[], news: RunResult[], tags: string[] = []): CaseComparison {
   const o = tally(olds, (r) => r.passed), n = tally(news, (r) => r.passed);
-  const deterministicOld = tally(olds, (r) => r.deterministic_passed ?? (!r.judge_dependent && r.passed));
-  const deterministicNew = tally(news, (r) => r.deterministic_passed ?? (!r.judge_dependent && r.passed));
+  const detPassed = (r: RunResult) => r.deterministic_passed ?? (!r.judge_dependent && r.passed);
+  const deterministicOld = tally(olds, detPassed), deterministicNew = tally(news, detPassed);
   const hasDeterministic = [...olds, ...news].every((r) => r.error || r.deterministic_passed !== undefined || !r.judge_dependent);
   const deterministic = hasDeterministic ? { old: deterministicOld, new: deterministicNew, ...judge(deterministicOld, deterministicNew) } : undefined;
   const overall = judge(o, n);
@@ -117,10 +116,8 @@ export function compareSkill(skill: string, olds: RunResult[], news: RunResult[]
   const trigger = compareTrigger(names, olds, news, tagsOf);
   const cases = names.map((name) => {
     const comparison = compareCase(name, olds.filter((r) => r.case === name), news.filter((r) => r.case === name), tagsOf(name));
-    comparison.needsMoreRuns ||= trigger?.cases.find((c) => c.name === name)?.needsMoreRuns ?? false;
-    if (triggerExpectation(name, tagsOf(name)) !== undefined) {
-      comparison.needsMoreRuns ||= !!trigger?.precision?.needsMoreRuns || !!trigger?.recall?.needsMoreRuns;
-    }
+    const tc = trigger?.cases.find((c) => c.name === name);
+    if (tc) comparison.needsMoreRuns ||= tc.needsMoreRuns || !!trigger?.precision?.needsMoreRuns || !!trigger?.recall?.needsMoreRuns;
     return comparison;
   });
   const rate = (side: 'old' | 'new') => {

@@ -6,7 +6,8 @@ export type Assertion =
   | { type: 'file_exists'; path: string }
   | { type: 'llm_rubric'; rubric: string };
 
-export type CaseTag = 'trigger' | 'no-trigger' | 'quality';
+export const CASE_TAGS = ['trigger', 'no-trigger', 'quality'] as const;
+export type CaseTag = typeof CASE_TAGS[number];
 
 export interface Case {
   name: string;

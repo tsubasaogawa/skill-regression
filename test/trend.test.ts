@@ -1,18 +1,13 @@
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { program } from '../src/cli.js';
-
-const tempDirs: string[] = [];
-afterEach(() => { vi.restoreAllMocks(); for (const d of tempDirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+import { tmpRoot } from './helpers.js';
 
 it('lists skill verdicts oldest first, skipping case rows and other skills', async () => {
-  const store = mkdtempSync(join(tmpdir(), 'skilldrift-trend-'));
-  tempDirs.push(store);
-  mkdirSync(join(store, 'raw'));
-  const row = (skill: string, newModel: string, verdict: string, ts: string, extra: object = {}) =>
-    JSON.stringify({ skill, agent: 'claude', old_model: 'm1', new_model: newModel, case: null, verdict, flags: [], aggregate: { old_pass_rate: 1, new_pass_rate: 0.8 }, ts, ...extra });
+  const store = tmpRoot();
+  const row = (skill: string, newModel: string, verdict: string, ts: string) =>
+    JSON.stringify({ skill, agent: 'claude', old_model: 'm1', new_model: newModel, case: null, verdict, flags: [], aggregate: { old_pass_rate: 1, new_pass_rate: 0.8 }, ts });
   writeFileSync(join(store, 'verdicts.jsonl'), [
     row('a', 'm3', 'REGRESSED', '2026-10-02T00:00:00.000Z'),
     JSON.stringify({ skill: 'a', case: 'c1', verdict: 'REGRESSED', ts: '2026-10-02T00:00:00.000Z' }),

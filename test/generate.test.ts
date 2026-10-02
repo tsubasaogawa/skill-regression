@@ -1,14 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 import { afterEach, expect, it, vi } from 'vitest';
 import { generateCases, toCases, type GeneratedItem } from '../src/cases/generate.js';
-import type { Case } from '../src/cases/types.js';
 import { hashSkillMd } from '../src/cases/hash.js';
+import type { Case } from '../src/cases/types.js';
 import { program } from '../src/cli.js';
 import { runSkill } from '../src/runner/promptfoo.js';
-import type { RunResult } from '../src/runner/types.js';
+import { result, silence, tmpRoot, writeSkill } from './helpers.js';
 
 vi.mock('../src/runner/promptfoo.js', () => ({ runSkill: vi.fn(), runSkillCase: vi.fn() }));
 vi.mock('../src/runner/version.js', () => ({ cliVersion: vi.fn(() => 'claude-test') }));
@@ -23,13 +22,7 @@ const items: GeneratedItem[] = [
   { tag: 'quality', prompt: 'q1', rubric: 'r1' }, { tag: 'quality', prompt: 'q2', rubric: 'r2' }, { tag: 'quality', prompt: 'q3', rubric: 'r3' },
 ];
 
-const tempDirs: string[] = [];
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.mocked(generateCases).mockReset();
-  vi.mocked(runSkill).mockReset();
-  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
+afterEach(() => { vi.mocked(generateCases).mockReset(); vi.mocked(runSkill).mockReset(); });
 
 it('converts generated items into neutral cases with trigger assertions', () => {
   const cases = toCases(items);
@@ -42,23 +35,16 @@ it('converts generated items into neutral cases with trigger assertions', () => 
 });
 
 it('generates once per skill hash, stores the cases, and shares them between old and new sides', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'skilldrift-gen-'));
-  tempDirs.push(root);
-  const skillsDir = join(root, 'skills');
-  const oldSkillsDir = join(root, 'old-skills');
-  const storeDir = join(root, 'store');
-  for (const dir of [skillsDir, oldSkillsDir]) {
-    mkdirSync(join(dir, 'demo'), { recursive: true });
-    writeFileSync(join(dir, 'demo', 'SKILL.md'), `---\nname: demo\ndescription: ${dir}\n---\n`);
-  }
+  const root = tmpRoot();
+  const skillsDir = join(root, 'skills'), oldSkillsDir = join(root, 'old-skills'), storeDir = join(root, 'store');
+  for (const dir of [skillsDir, oldSkillsDir]) writeSkill(dir, 'demo', undefined, `---\nname: demo\ndescription: ${dir}\n---\n`);
   const generated = toCases(items);
   vi.mocked(generateCases).mockResolvedValue(generated);
-  vi.mocked(runSkill).mockImplementation(async (sc, options) => ({
-    results: sc.cases.map((c, run_idx): RunResult => ({ skill: 'demo', case: c.name, agent: 'claude', model: options.models[0], run_idx: 0, passed: true, score: 1, triggered: c.tags[0] !== 'no-trigger', judge_dependent: false, latency_ms: run_idx })),
+  vi.mocked(runSkill).mockImplementation(async (sc, o) => ({
+    results: sc.cases.map((c) => result({ skill: 'demo', case: c.name, model: o.models[0], triggered: c.tags[0] !== 'no-trigger' })),
     raw: {} as never,
   }));
-  vi.spyOn(console, 'log').mockImplementation(() => {});
-  vi.spyOn(console, 'error').mockImplementation(() => {});
+  silence();
 
   const args = ['compare', '--skills-dir', skillsDir, '--old-skills-dir', oldSkillsDir, '--fixtures-dir', join(root, 'fixtures'), '--old', 'old-model', '--new', 'new-model', '--runs', '1', '--store', storeDir, '--out', join(root, 'report'), '--format', 'json', '--case-generator', 'gen-model'];
   await program.parseAsync(args, { from: 'user' });

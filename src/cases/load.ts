@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { fromEvalsJson, type EvalsJson } from './fromEvalsJson.js';
-import type { Case } from './types.js';
+import { CASE_TAGS, type Case } from './types.js';
 
 export type CaseSource = 'cases.yaml' | 'evals.json' | 'generated';
 
@@ -41,7 +41,7 @@ export function validateCases(value: unknown, dir: string): Case[] {
     }
     if (names.has(c.name)) throw new Error(`duplicate case name: ${c.name}`);
     names.add(c.name);
-    if (c.tags.some((t: unknown) => !['trigger', 'no-trigger', 'quality'].includes(String(t)))
+    if (c.tags.some((t: unknown) => !(CASE_TAGS as readonly string[]).includes(String(t)))
       || (c.tags.includes('trigger') && c.tags.includes('no-trigger'))) throw new Error(`invalid tags for case: ${c.name}`);
     for (const file of c.files) {
       if (!text(file)) throw new Error(`invalid input file for case: ${c.name}`);

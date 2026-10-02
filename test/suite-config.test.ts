@@ -1,27 +1,15 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { parseSuiteConfig, readSuiteConfig, resolveCompareConfig, selectSkills } from '../src/config/suite.js';
-
-const tempDirs: string[] = [];
-
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
+import { tmpRoot } from './helpers.js';
 
 it('loads suite.yaml and treats a missing default suite as empty', () => {
-  const root = mkdtempSync(join(tmpdir(), 'skilldrift-suite-'));
-  tempDirs.push(root);
+  const root = tmpRoot();
   const path = join(root, 'suite.yaml');
   writeFileSync(path, 'baseline_model: claude-sonnet\nskills: [alpha, beta]\nruns: 3\naggregate_drop_pt: 0.15\n');
 
-  expect(readSuiteConfig(path)).toEqual({
-    baseline_model: 'claude-sonnet',
-    skills: ['alpha', 'beta'],
-    runs: 3,
-    aggregate_drop_pt: 0.15,
-  });
+  expect(readSuiteConfig(path)).toEqual({ baseline_model: 'claude-sonnet', skills: ['alpha', 'beta'], runs: 3, aggregate_drop_pt: 0.15 });
   expect(readSuiteConfig(join(root, 'missing.yaml'), true)).toEqual({});
   expect(() => readSuiteConfig(join(root, 'missing.yaml'))).toThrow('suite config not found');
 });
@@ -34,15 +22,7 @@ it('resolves CLI values before suite values and defaults', async () => {
     ['alpha', 'beta'],
     prompt,
   );
-
-  expect(config).toEqual({
-    oldModel: 'cli-old',
-    newModel: 'cli-new',
-    skills: ['alpha'],
-    runs: 4,
-    caseGeneratorModel: 'cli-gen',
-    aggregateDropPt: 0.2,
-  });
+  expect(config).toEqual({ oldModel: 'cli-old', newModel: 'cli-new', skills: ['alpha'], runs: 4, caseGeneratorModel: 'cli-gen', aggregateDropPt: 0.2 });
   expect(prompt).not.toHaveBeenCalled();
 });
 
@@ -54,15 +34,7 @@ it('uses suite values, defaults, then prompts only for missing models', async ()
     ['alpha', 'beta'],
     prompt,
   );
-
-  expect(config).toEqual({
-    oldModel: 'suite-old',
-    newModel: 'candidate-model-model',
-    skills: ['beta'],
-    runs: 1,
-    caseGeneratorModel: 'suite-gen',
-    aggregateDropPt: 0.1,
-  });
+  expect(config).toEqual({ oldModel: 'suite-old', newModel: 'candidate-model-model', skills: ['beta'], runs: 1, caseGeneratorModel: 'suite-gen', aggregateDropPt: 0.1 });
   expect(prompt).toHaveBeenCalledOnce();
   expect(prompt).toHaveBeenCalledWith('Candidate model');
 });
@@ -70,14 +42,7 @@ it('uses suite values, defaults, then prompts only for missing models', async ()
 it('prompts for required models and defaults to all available skills', async () => {
   const prompt = vi.fn(async (label: string) => `${label}-model`);
   const config = await resolveCompareConfig({}, {}, ['alpha', 'beta'], prompt);
-
-  expect(config).toEqual({
-    oldModel: 'Baseline model-model',
-    newModel: 'Candidate model-model',
-    skills: ['alpha', 'beta'],
-    runs: 1,
-    caseGeneratorModel: 'claude-sonnet-5-5',
-  });
+  expect(config).toEqual({ oldModel: 'Baseline model-model', newModel: 'Candidate model-model', skills: ['alpha', 'beta'], runs: 1, caseGeneratorModel: 'claude-sonnet-5-5' });
   expect(prompt).toHaveBeenNthCalledWith(1, 'Baseline model');
   expect(prompt).toHaveBeenNthCalledWith(2, 'Candidate model');
 });

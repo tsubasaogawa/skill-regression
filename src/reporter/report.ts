@@ -5,6 +5,7 @@ import type { CaseSource } from '../cases/load.js';
 import type { RunResult } from '../runner/types.js';
 
 const require = createRequire(import.meta.url);
+export const VERSION: string = require('../../package.json').version;
 
 export type Flag = 'generated-cases' | 'judge-dependent' | 'low-power' | 'partial';
 export interface SkillReport extends SkillComparison { flags: Flag[]; cases_source: CaseSource; cases_hash: string }
@@ -45,7 +46,7 @@ export const totalCost = (rs: RunResult[]): number => rs.reduce((s, r) => s + (r
 
 export function buildReport(skills: SkillReport[], results: { old: RunResult[]; new: RunResult[] }, o: { oldModel: string; newModel: string; startedAt: Date; claudeVersion?: string; skipped?: string[] }): Report {
   return {
-    skilldrift_version: require('../../package.json').version,
+    skilldrift_version: VERSION,
     promptfoo_version: require(require.resolve('promptfoo').replace(/dist[\/].*$/, 'package.json')).version,
     agent: 'claude', old_model: o.oldModel, new_model: o.newModel,
     ...(o.claudeVersion ? { claude_version: o.claudeVersion } : {}),
@@ -56,8 +57,7 @@ export function buildReport(skills: SkillReport[], results: { old: RunResult[]; 
   };
 }
 
-const pct = (x: number) => `${Math.round(x * 100)}%`;
-const maybePct = (x: number | null) => x === null ? 'n/a' : pct(x);
+export const pct = (x?: number | null) => x == null ? 'n/a' : `${Math.round(x * 100)}%`;
 
 export function toMarkdown(r: Report): string {
   const judgeCost = r.cost_usd.judge == null ? 'unavailable' : `$${r.cost_usd.judge.toFixed(2)}`;
@@ -73,7 +73,7 @@ export function toMarkdown(r: Report): string {
     lines.push('', '## Trigger precision / recall', '',
       '| Skill | Verdict | Old precision | New precision | Old recall | New recall | Max metric P_reg |',
       '| --- | --- | --- | --- | --- | --- | --- |',
-      ...triggers.map((t) => `| ${t.name} | ${t.verdict} | ${maybePct(t.old.precision)} | ${maybePct(t.new.precision)} | ${maybePct(t.old.recall)} | ${maybePct(t.new.recall)} | ${t.p_reg.toFixed(2)} |`),
+      ...triggers.map((t) => `| ${t.name} | ${t.verdict} | ${pct(t.old.precision)} | ${pct(t.new.precision)} | ${pct(t.old.recall)} | ${pct(t.new.recall)} | ${t.p_reg.toFixed(2)} |`),
       '',
       '| Skill | Case | Expected trigger | Verdict | Old correct/runs | New correct/runs | P_reg |',
       '| --- | --- | --- | --- | --- | --- | --- |',

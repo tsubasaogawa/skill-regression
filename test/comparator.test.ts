@@ -2,9 +2,10 @@ import { expect, it } from 'vitest';
 import { pRegressed } from '../src/comparator/beta.js';
 import { compareCase, compareSkill, toInternalVerdict, toVerdict } from '../src/comparator/verdict.js';
 import type { RunResult } from '../src/runner/types.js';
+import { result } from './helpers.js';
 
 const runs = (model: string, c: string, passes: boolean[], error = false): RunResult[] =>
-  passes.map((p, i) => ({ skill: 's', case: c, agent: 'claude', model, run_idx: i, passed: p, score: p ? 1 : 0, triggered: p, judge_dependent: false, latency_ms: 0, ...(error ? { error: 'x' } : {}) }));
+  passes.map((p, i) => result({ case: c, model, run_idx: i, passed: p, score: p ? 1 : 0, triggered: p, ...(error ? { error: 'x' } : {}) }));
 const k = (pass: number, n: number) => Array.from({ length: n }, (_, i) => i < pass);
 
 it('pRegressed is symmetric and monotone', () => {

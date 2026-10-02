@@ -1,15 +1,14 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { resolveCases } from '../src/cases/load.js';
 import { buildFixture } from '../src/planner/fixture.js';
+import { tmpRoot, writeSkill } from './helpers.js';
 
 it('builds fixture with both skill copies, case files and assets', () => {
-  const tmp = mkdtempSync(join(tmpdir(), 'skilldrift-'));
-  const skillDir = join(tmp, 'skills', 's');
+  const tmp = tmpRoot();
+  const skillDir = writeSkill(join(tmp, 'skills'), 's');
   mkdirSync(join(skillDir, 'evals', 'files'), { recursive: true });
-  writeFileSync(join(skillDir, 'SKILL.md'), '# s');
   writeFileSync(join(skillDir, 'evals', 'files', 'in.md'), 'x');
   writeFileSync(join(skillDir, 'evals', 'evals.json'), JSON.stringify({ skill_name: 's', evals: [{ id: 1, prompt: 'p', files: ['evals/files/in.md'] }] }));
 

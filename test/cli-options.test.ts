@@ -1,45 +1,28 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { stringify } from 'yaml';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { Case } from '../src/cases/types.js';
 import { program } from '../src/cli.js';
 import { runSkill } from '../src/runner/promptfoo.js';
-import type { RunResult } from '../src/runner/types.js';
+import { aCase, result, silence, tmpRoot, writeSkill } from './helpers.js';
 
 vi.mock('../src/runner/promptfoo.js', () => ({ runSkill: vi.fn(), runSkillCase: vi.fn() }));
 vi.mock('../src/runner/version.js', () => ({ cliVersion: vi.fn(() => 'claude-test') }));
 
-const tempDirs: string[] = [];
 let root: string, skillsDir: string;
 const base = () => ['compare', '--skills-dir', skillsDir, '--fixtures-dir', join(root, 'fixtures'), '--store', join(root, 'store'), '--out', join(root, 'report'), '--format', 'json', '--suite', join(root, 'none.yaml')];
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'skilldrift-opts-'));
-  tempDirs.push(root);
+  root = tmpRoot();
   skillsDir = join(root, 'skills');
-  for (const s of ['a', 'b']) {
-    mkdirSync(join(skillsDir, s, 'evals'), { recursive: true });
-    writeFileSync(join(skillsDir, s, 'SKILL.md'), `# ${s}`);
-    const cases: Case[] = [{ name: 'c', prompt: 'p', tags: ['quality'], files: [], assertions: [] }];
-    writeFileSync(join(skillsDir, s, 'evals', 'cases.yaml'), stringify(cases));
-  }
+  for (const s of ['a', 'b']) writeSkill(skillsDir, s, [aCase('c')]);
   writeFileSync(join(root, 'none.yaml'), '');
-  vi.spyOn(console, 'log').mockImplementation(() => {});
-  vi.spyOn(console, 'error').mockImplementation(() => {});
+  silence();
   vi.mocked(runSkill).mockImplementation(async (sc, o) => ({
-    results: sc.cases.map((c): RunResult => ({ skill: sc.skill, case: c.name, agent: 'claude', model: o.models[0], run_idx: 0, passed: true, score: 1, triggered: true, judge_dependent: false, latency_ms: 1, cost_usd: 2 })),
+    results: sc.cases.map((c) => result({ skill: sc.skill, case: c.name, model: o.models[0], cost_usd: 2 })),
     raw: {} as never,
   }));
-  program.exitOverride();
 });
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.mocked(runSkill).mockReset();
-  process.exitCode = undefined;
-  for (const d of tempDirs.splice(0)) rmSync(d, { recursive: true, force: true });
-});
+afterEach(() => vi.mocked(runSkill).mockReset());
 
 it('exits 3 on missing models in non-interactive mode and on an unknown skill', async () => {
   await expect(program.parseAsync([...base(), '--non-interactive', '--old', 'o'], { from: 'user' })).rejects.toMatchObject({ exitCode: 3, message: expect.stringContaining('Candidate model is required') });
@@ -91,15 +74,9 @@ it('rejects invalid run limits, unknown cases and malformed cases with exit 3 be
 
 it('uses candidate cases and input contents on both sides even when baseline evals differ', async () => {
   const oldSkillsDir = join(root, 'old-skills');
-  mkdirSync(join(oldSkillsDir, 'a', 'evals'), { recursive: true });
-  writeFileSync(join(oldSkillsDir, 'a', 'SKILL.md'), '# old a');
-  writeFileSync(join(oldSkillsDir, 'a', 'evals', 'cases.yaml'), stringify([
-    { name: 'c', prompt: 'old prompt', tags: [], files: [], assertions: [] },
-  ]));
+  writeSkill(oldSkillsDir, 'a', [aCase('c', { prompt: 'old prompt', tags: [] })], '# old a');
   writeFileSync(join(skillsDir, 'a', 'evals', 'input.txt'), 'candidate input');
-  writeFileSync(join(skillsDir, 'a', 'evals', 'cases.yaml'), stringify([
-    { name: 'c', prompt: 'new prompt', tags: ['quality'], files: ['evals/input.txt'], assertions: [] },
-  ]));
+  writeSkill(skillsDir, 'a', [aCase('c', { prompt: 'new prompt', files: ['evals/input.txt'] })]);
   const inputs: string[] = [];
   const implementation = vi.mocked(runSkill).getMockImplementation()!;
   vi.mocked(runSkill).mockImplementation(async (sc, opts, version) => {
