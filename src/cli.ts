@@ -276,7 +276,7 @@ program
 
 export function suiteTemplate(o: { baselineModel: string; skills: string[] }): string {
   return [
-    '# skilldrift suite configuration (see README)',
+    '# skilldrift suite configuration (see docs/configuration.md)',
     `baseline_model: ${o.baselineModel}`,
     '',
     '# Skills to compare. Omit to compare every skill under --skills-dir.',
