@@ -35,7 +35,7 @@ The cache format carries a version, and skilldrift ignores results written in an
 
 ## Store
 
-Defaults to `./.skilldrift/`.
+Defaults to `$XDG_DATA_HOME/skilldrift/`, or `~/.local/share/skilldrift/` when `XDG_DATA_HOME` is unset, empty, or not an absolute path. Change it with `--store <dir>`.
 
 ```
 results.jsonl      # normalized result per run (the cache itself)
