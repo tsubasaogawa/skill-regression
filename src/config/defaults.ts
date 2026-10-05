@@ -1,7 +1,8 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 
-export const JUDGE_PROVIDER = 'anthropic:messages';
+export const JUDGE_PROVIDER = 'anthropic:claude-agent-sdk';
+export const JUDGE_SYSTEM_PROMPT = 'You are a strict grader. Follow the instructions in the user message exactly and reply with only the requested JSON.';
 
 const xdgDataHome = process.env.XDG_DATA_HOME;
 const dataHome = xdgDataHome && isAbsolute(xdgDataHome) ? xdgDataHome : join(homedir(), '.local', 'share');

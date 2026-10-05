@@ -82,7 +82,7 @@ async function loadSkill(store: Store, dir: string, skill: string, generator?: s
 
 interface CompareOpts extends CompareOverrides {
   suite?: string; skillsDir: string; fixturesDir: string; case?: string; oldSkillsDir?: string; runsMax?: string;
-  llmRubric?: boolean; judge: string; concurrency: string; store: string; cache: boolean; nonInteractive?: boolean;
+  llmRubric: boolean; judge: string; concurrency: string; store: string; cache: boolean; nonInteractive?: boolean;
   webhook?: string; out?: string; format: string; dryRun?: boolean;
 }
 
@@ -99,7 +99,7 @@ program
   .option('--old-skills-dir <dir>', 'skills directory for the baseline side (default: --skills-dir)')
   .option('--runs <n>', 'runs per case per model')
   .option('--runs-max <n>', 'maximum runs per case per model (default: --runs)')
-  .option('--llm-rubric', 'enable llm_rubric assertions (needs ANTHROPIC_API_KEY); ignored otherwise')
+  .option('--no-llm-rubric', 'drop llm_rubric assertions and grade with deterministic assertions only')
   .option('--judge <model>', 'judge model for llm_rubric', DEFAULTS.judgeModel)
   .option('--case-generator <model>', 'model that generates cases for skills without evals (default: suite case_generator_model)')
   .option('--concurrency <n>', 'max concurrent runs', String(DEFAULTS.concurrency))

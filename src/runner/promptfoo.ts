@@ -1,5 +1,5 @@
 import { evaluate, ResultFailureReason, type EvaluateResult, type EvaluateSummaryV3, type EvaluateTestSuite } from 'promptfoo';
-import { JUDGE_PROVIDER } from '../config/defaults.js';
+import { JUDGE_PROVIDER, JUDGE_SYSTEM_PROMPT } from '../config/defaults.js';
 import type { SkillCases } from '../cases/load.js';
 import type { Assertion } from '../cases/types.js';
 import type { RunResult } from './types.js';
@@ -15,11 +15,13 @@ export interface RunOptions {
 
 export interface RunOutput { results: RunResult[]; raw: EvaluateSummaryV3 }
 
-export function assertJudgeApiKey(sc: SkillCases): void {
-  const needsJudge = sc.cases.some((c) => c.assertions.some((a) => a.type === 'llm_rubric'));
-  if (needsJudge && !process.env.ANTHROPIC_API_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is required for llm_rubric assertions using the Anthropic Messages judge');
-  }
+/**
+ * The llm-rubric judge runs on the Claude Code login like the Skill runs, so no ANTHROPIC_API_KEY is needed.
+ * Without working_dir the provider uses a temp dir with no tools, and setting_sources defaults to [] (no user settings).
+ * A short custom system prompt replaces the Claude Code preset, which would add about 6k input tokens per grading call.
+ */
+export function judgeProvider(model: string) {
+  return { id: JUDGE_PROVIDER, config: { model, apiKeyRequired: false, max_turns: 1, custom_system_prompt: JUDGE_SYSTEM_PROMPT } };
 }
 
 /** Rewrite bare /tmp paths into <workingDir>/tmp so parallel skills and repeated runs do not share files. */
@@ -46,7 +48,7 @@ export function toTestSuite(sc: SkillCases, o: RunOptions): EvaluateTestSuite {
       id: 'anthropic:claude-agent-sdk', label: `claude/${model}`,
       config: { model, apiKeyRequired: false, working_dir: o.workingDir, setting_sources: ['project'], skills: [sc.skill], permission_mode: 'bypassPermissions', allow_dangerously_skip_permissions: true, allow_all_tools: true },
     })),
-    defaultTest: { options: { provider: `${JUDGE_PROVIDER}:${o.judgeModel}` } },
+    defaultTest: { options: { provider: judgeProvider(o.judgeModel) } },
     tests: sc.cases.map((c) => ({
       description: c.name,
       vars: { prompt: relocateTmp(c.prompt, o.workingDir) },
@@ -83,7 +85,6 @@ export function normalize(results: EvaluateResult[], skill: string, claudeVersio
 }
 
 export async function runSkill(sc: SkillCases, o: RunOptions, claudeVersion?: string): Promise<RunOutput> {
-  assertJudgeApiKey(sc);
   const evalRecord = await evaluate(toTestSuite(sc, o), {
     repeat: o.runs, cache: false, maxConcurrency: o.maxConcurrency ?? 2, silent: true, showProgressBar: false,
     progressCallback: (completed, total) => o.onProgress?.(completed, total),

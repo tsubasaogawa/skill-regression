@@ -95,13 +95,13 @@ it('reruns all trigger cases when aggregate recall is ambiguous but each case is
 });
 
 it.each([
-  [false, ['skill_used']],
   [true, ['skill_used', 'llm_rubric']],
-])('--llm-rubric=%s passes assertions %j to the runner', async (enabled, expected) => {
+  [false, ['skill_used']],
+])('llm_rubric enabled=%s passes assertions %j to the runner', async (enabled, expected) => {
   const { args } = setup([aCase('q', { assertions: [{ type: 'skill_used' }, { type: 'llm_rubric', rubric: 'r' }] })], 'baseline_model: old-model\nruns: 1\n');
   vi.mocked(runSkill).mockImplementation(async (sc, o) => ({ results: sc.cases.flatMap((c) => series(c.name, o.models[0], o.runs, () => pass(true))), raw: {} as never }));
 
-  await program.parseAsync(enabled ? [...args, '--llm-rubric'] : args, { from: 'user' });
+  await program.parseAsync(enabled ? args : [...args, '--no-llm-rubric'], { from: 'user' });
 
   const [sc] = vi.mocked(runSkill).mock.calls[0];
   expect(sc.cases[0].assertions.map((a) => a.type)).toEqual(expected);

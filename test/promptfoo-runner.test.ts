@@ -1,30 +1,27 @@
 import type { EvaluateResult } from 'promptfoo';
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it } from 'vitest';
 import type { SkillCases } from '../src/cases/load.js';
-import { JUDGE_PROVIDER } from '../src/config/defaults.js';
-import { assertJudgeApiKey, normalize, relocateTmp, runSkill, toTestSuite } from '../src/runner/promptfoo.js';
+import { JUDGE_SYSTEM_PROMPT } from '../src/config/defaults.js';
+import { normalize, relocateTmp, toTestSuite } from '../src/runner/promptfoo.js';
 import { aCase } from './helpers.js';
 
 const rubricSkill: SkillCases = {
   skill: 'demo', dir: '/tmp/demo', source: 'cases.yaml',
   cases: [aCase('quality', { prompt: 'Do the task', assertions: [{ type: 'llm_rubric', rubric: 'The response completes the task.' }] })],
 };
-const deterministicSkill: SkillCases = { ...rubricSkill, cases: [{ ...rubricSkill.cases[0], assertions: [{ type: 'skill_used' }] }] };
 const options = { models: ['claude-sonnet-4-5'], runs: 1, judgeModel: 'claude-haiku-4-5-20251001', workingDir: '/tmp/fixture' };
 
-afterEach(() => vi.unstubAllEnvs());
-
-it('uses Anthropic Messages as the llm-rubric judge', () => {
+it('grades llm-rubric through the Claude Agent SDK on the Claude Code login, without tools or a working dir', () => {
   const suite = toTestSuite(rubricSkill, options);
-  expect(suite.defaultTest).toMatchObject({ options: { provider: `${JUDGE_PROVIDER}:claude-haiku-4-5-20251001` } });
+  expect(suite.defaultTest).toEqual({
+    options: {
+      provider: {
+        id: 'anthropic:claude-agent-sdk',
+        config: { model: 'claude-haiku-4-5-20251001', apiKeyRequired: false, max_turns: 1, custom_system_prompt: JUDGE_SYSTEM_PROMPT },
+      },
+    },
+  });
   expect(suite.providers[0].id).toBe('anthropic:claude-agent-sdk');
-});
-
-it('requires an Anthropic API key only when llm-rubric assertions are used', async () => {
-  vi.stubEnv('ANTHROPIC_API_KEY', '');
-  expect(() => assertJudgeApiKey(rubricSkill)).toThrow(/ANTHROPIC_API_KEY/);
-  expect(() => assertJudgeApiKey(deterministicSkill)).not.toThrow();
-  await expect(runSkill(rubricSkill, options)).rejects.toThrow(/ANTHROPIC_API_KEY/);
 });
 
 it('relocates /tmp into the fixture in prompts and assertions', () => {
