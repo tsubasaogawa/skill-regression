@@ -23,5 +23,5 @@ it('lists skill verdicts oldest first, skipping case rows and other skills', asy
   await program.parseAsync(['trend', '--store', store], { from: 'user' });
   expect(out[1]).toContain('## a');
   expect(out[1]).toContain('## b');
-  expect(out[1]).toContain('| 2026-10-02 00:00 | m1 | m3 | REGRESSED | 100% | 80% |  |');
+  expect(out[1]).toContain('| 2026-10-02 00:00 | m1  | m3  | REGRESSED | 100%     | 80%      |       |');
 });

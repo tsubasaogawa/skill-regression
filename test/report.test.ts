@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { exitCode, isLowPower, skillFlags, toMarkdown, buildReport, type SkillReport } from '../src/reporter/report.js';
+import { exitCode, isLowPower, skillFlags, table, toMarkdown, buildReport, type SkillReport } from '../src/reporter/report.js';
 import type { CaseComparison } from '../src/comparator/verdict.js';
 import { compareSkill } from '../src/comparator/verdict.js';
 import { result } from './helpers.js';
@@ -26,7 +26,7 @@ it('flags and markdown', () => {
   const r = buildReport([sr], { old: [], new: [] }, { oldModel: 'a', newModel: 'b', startedAt: new Date() });
   expect(r.cost_usd.judge).toBeNull();
   expect(r.exit_code).toBe(2);
-  const md = toMarkdown(r);
+  const md = toMarkdown(r).replace(/ {2,}/g, ' ');
   expect(md).toContain('judge unavailable');
   expect(md).toContain('| s | REGRESSED | 100% | 40% | generated-cases, judge-dependent, has-errors |');
   expect(md).toContain('- `has-errors`: some runs errored and were excluded');
@@ -46,7 +46,7 @@ it('sets exit code and renders trigger regressions', () => {
   };
   expect(exitCode([sr])).toBe(1);
   const r = buildReport([sr], { old: [], new: [] }, { oldModel: 'a', newModel: 'b', startedAt: new Date() });
-  const md = toMarkdown(r);
+  const md = toMarkdown(r).replace(/ {2,}/g, ' ');
   expect(md).toContain('## Trigger precision / recall');
   expect(md).toContain('| s | REGRESSED | 100% | 50% | 100% | 40% | 0.97 |');
   expect(md).toContain('| s | fires | yes | REGRESSED | 5/5 | 2/5 | 0.97 |');
@@ -75,4 +75,26 @@ it('exits 1 for deterministic regression in mixed rubric cases and reports rubri
   expect(exitCode([report(true)])).toBe(0);
   const r = buildReport([report(false)], { old: [], new: [] }, { oldModel: 'a', newModel: 'b', startedAt: new Date() });
   expect(toMarkdown(r)).toContain('mixed deterministic assertions: REGRESSED');
+});
+
+it('pads table columns to equal display width, counting wide characters as two', () => {
+  expect(table(['Case', 'V'], [['日本語', 'ok'], ['a', 'REGRESSED']])).toEqual([
+    '| Case   | V         |',
+    '| ------ | --------- |',
+    '| 日本語 | ok        |',
+    '| a      | REGRESSED |',
+  ]);
+});
+
+it('switches to one block per row when the table is wider than maxWidth', () => {
+  const rows = [['pdf-summarizer', 'REGRESSED', ''], ['git', 'UNCHANGED', 'low-power']];
+  expect(table(['Skill', 'Verdict', 'Flags'], rows, 80)[0]).toBe('| Skill          | Verdict   | Flags     |');
+  expect(table(['Skill', 'Verdict', 'Flags'], rows, 30)).toEqual([
+    '- Skill:   pdf-summarizer',
+    '  Verdict: REGRESSED',
+    '',
+    '- Skill:   git',
+    '  Verdict: UNCHANGED',
+    '  Flags:   low-power',
+  ]);
 });
