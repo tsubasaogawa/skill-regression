@@ -6,7 +6,7 @@
 | --- | --- |
 | `--old` / `--new` | Old and new model. Without `--old`, skilldrift uses `baseline_model` from suite.yaml |
 | `--skill`, `--case` | Limit the run to specific Skills or cases |
-| `--runs`, `--runs-max` | Runs per case, and the cap on extra runs added when a verdict stays ambiguous |
+| `--runs`, `--runs-max` | Runs per case (default 3), and the cap on extra runs added when a verdict stays ambiguous (default: the larger of 10 and `--runs`) |
 | `--old-skills-dir` | Use a different Skill directory for the old side. Both sides share the new side's cases and input files (for comparing a SKILL.md before and after an edit) |
 | `--aggregate-drop-pt` | Mark the Skill DEGRADED when the aggregate pass rate drops by at least this much (0 to 1) |
 | `--max-cost-usd` | Stop starting new Skills once the recorded cost reaches this limit |

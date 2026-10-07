@@ -34,7 +34,7 @@ it('uses suite values, defaults, then prompts only for missing models', async ()
     ['alpha', 'beta'],
     prompt,
   );
-  expect(config).toEqual({ oldModel: 'suite-old', newModel: 'candidate-model-model', skills: ['beta'], runs: 1, caseGeneratorModel: 'suite-gen', aggregateDropPt: 0.1 });
+  expect(config).toEqual({ oldModel: 'suite-old', newModel: 'candidate-model-model', skills: ['beta'], runs: 3, caseGeneratorModel: 'suite-gen', aggregateDropPt: 0.1 });
   expect(prompt).toHaveBeenCalledOnce();
   expect(prompt).toHaveBeenCalledWith('Candidate model');
 });
@@ -42,7 +42,7 @@ it('uses suite values, defaults, then prompts only for missing models', async ()
 it('prompts for required models and defaults to all available skills', async () => {
   const prompt = vi.fn(async (label: string) => `${label}-model`);
   const config = await resolveCompareConfig({}, {}, ['alpha', 'beta'], prompt);
-  expect(config).toEqual({ oldModel: 'Baseline model-model', newModel: 'Candidate model-model', skills: ['alpha', 'beta'], runs: 1, caseGeneratorModel: 'claude-sonnet-5-5' });
+  expect(config).toEqual({ oldModel: 'Baseline model-model', newModel: 'Candidate model-model', skills: ['alpha', 'beta'], runs: 3, caseGeneratorModel: 'claude-sonnet-5-5' });
   expect(prompt).toHaveBeenNthCalledWith(1, 'Baseline model');
   expect(prompt).toHaveBeenNthCalledWith(2, 'Candidate model');
 });
