@@ -12,7 +12,7 @@ import { compareSkill } from './comparator/verdict.js';
 import { DEFAULTS, JUDGE_PROVIDER } from './config/defaults.js';
 import { readSuiteConfig, resolveCompareConfig, selectSkills, type CompareOverrides } from './config/suite.js';
 import { buildFixture } from './planner/fixture.js';
-import { buildReport, pct, skillFlags, toMarkdown, totalCost, VERSION, type Report, type SkillReport } from './reporter/report.js';
+import { buildReport, pct, skillFlags, table, toMarkdown, totalCost, VERSION, type Report, type SkillReport } from './reporter/report.js';
 import { runSkill, runSkillCase, type RunOptions } from './runner/promptfoo.js';
 import type { RunResult } from './runner/types.js';
 import { cliVersion } from './runner/version.js';
@@ -239,11 +239,13 @@ async function compare(opts: CompareOpts): Promise<void> {
   if (opts.format !== 'json') writeFileSync(join(out, 'report.md'), toMarkdown(report));
   if (opts.format !== 'md') writeFileSync(join(out, 'report.json'), JSON.stringify(report, null, 2));
   if (opts.format === 'json') console.log(JSON.stringify(report, null, 2));
-  else { console.log(toMarkdown(report)); console.error(`report: ${out}`); }
+  else { console.log(toMarkdown(report, termWidth())); console.error(`report: ${out}`); }
   process.exitCode = report.exit_code;
   const webhook = opts.webhook ?? process.env.SKILLDRIFT_WEBHOOK_URL;
   if (webhook) await postWebhook(webhook, report, join(out, 'report.md'));
 }
+
+const termWidth = () => process.stdout.isTTY ? process.stdout.columns : undefined;
 
 async function postWebhook(url: string, report: Report, reportPath: string): Promise<void> {
   const text = [
@@ -320,8 +322,9 @@ program
       .filter((v) => (v.agent ?? 'claude') === opts.agent && (!opts.skill || v.skill === opts.skill));
     if (opts.format === 'json') return console.log(JSON.stringify(rows, null, 2));
     const lines = [...new Set(rows.map((v) => v.skill))].flatMap((skill) => [
-      `## ${skill}`, '', '| When | Old | New | Verdict | Old pass | New pass | Flags |', '| --- | --- | --- | --- | --- | --- | --- |',
-      ...rows.filter((v) => v.skill === skill).map((v) => `| ${v.ts.slice(0, 16).replace('T', ' ')} | ${v.old_model} | ${v.new_model} | ${v.verdict} | ${pct(v.aggregate?.old_pass_rate)} | ${pct(v.aggregate?.new_pass_rate)} | ${(v.flags ?? []).join(', ')} |`),
+      `## ${skill}`, '',
+      ...table(['When', 'Old', 'New', 'Verdict', 'Old pass', 'New pass', 'Flags'],
+        rows.filter((v) => v.skill === skill).map((v) => [v.ts.slice(0, 16).replace('T', ' '), v.old_model, v.new_model, v.verdict, pct(v.aggregate?.old_pass_rate), pct(v.aggregate?.new_pass_rate), (v.flags ?? []).join(', ')]), termWidth()),
       '',
     ]);
     console.log(lines.length ? lines.join('\n') : 'no verdicts');
