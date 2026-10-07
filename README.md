@@ -47,6 +47,12 @@ skilldrift trend --skill my-skill
 skilldrift cases export my-skill > ~/.claude/skills/my-skill/evals/cases.yaml
 ```
 
+promptfoo prints `Using unknown model for Claude Agent SDK: <model>` when its model list does not include the model yet. The run is unaffected. To hide it, set `LOG_LEVEL=error`; this also hides promptfoo's other warnings.
+
+```sh
+LOG_LEVEL=error skilldrift compare --old claude-sonnet-5 --new claude-sonnet-5-5
+```
+
 ## Security
 
 skilldrift runs the Skills under test on your host with Claude Code's tools unrestricted (`bypassPermissions`). There is no sandbox.
