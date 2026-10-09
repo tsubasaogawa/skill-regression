@@ -98,7 +98,7 @@ program
   .option('--new <model>', 'candidate model')
   .option('--old-skills-dir <dir>', 'skills directory for the baseline side (default: --skills-dir)')
   .option('--runs <n>', 'runs per case per model')
-  .option('--runs-max <n>', 'maximum runs per case per model (default: --runs)')
+  .option('--runs-max <n>', `maximum runs per case per model (default: max(${DEFAULTS.runsMax}, --runs))`)
   .option('--no-llm-rubric', 'drop llm_rubric assertions and grade with deterministic assertions only')
   .option('--judge <model>', 'judge model for llm_rubric', DEFAULTS.judgeModel)
   .option('--case-generator <model>', 'model that generates cases for skills without evals (default: suite case_generator_model)')
@@ -137,7 +137,7 @@ async function compare(opts: CompareOpts): Promise<void> {
 
   const config = await resolveCompareConfig(opts, suite, availableSkills, (label) => promptForModel(label, !opts.nonInteractive)).catch(inputError);
   const { oldModel, newModel, runs } = config;
-  const runsMax = opts.runsMax == null ? runs : Number(opts.runsMax);
+  const runsMax = opts.runsMax == null ? Math.max(DEFAULTS.runsMax, runs) : Number(opts.runsMax);
   if (!Number.isInteger(runsMax) || runsMax < runs) return inputError('--runs-max must be an integer greater than or equal to --runs');
   if (!Number.isInteger(Number(opts.concurrency)) || Number(opts.concurrency) < 1) return inputError('--concurrency must be a positive integer');
   if (!['md', 'json', 'both'].includes(opts.format)) return inputError('--format must be md, json or both');
