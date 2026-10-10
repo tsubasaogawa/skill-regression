@@ -243,17 +243,16 @@ async function compare(opts: CompareOpts): Promise<void> {
   else { console.log(toMarkdown(report, termWidth())); console.error(`report: ${out}`); }
   process.exitCode = report.exit_code;
   const webhook = opts.webhook ?? process.env.SKILLDRIFT_WEBHOOK_URL;
-  if (webhook) await postWebhook(webhook, report, join(out, 'report.md'));
+  if (webhook) await postWebhook(webhook, report);
 }
 
 const termWidth = () => process.stdout.isTTY ? process.stdout.columns : undefined;
 
-async function postWebhook(url: string, report: Report, reportPath: string): Promise<void> {
+async function postWebhook(url: string, report: Report): Promise<void> {
   const text = [
     `skilldrift: ${report.old_model} → ${report.new_model} (exit ${report.exit_code})`,
     ...report.skills.map((s) => `- ${s.name}: ${s.verdict}${s.flags.length ? ` [${s.flags.join(', ')}]` : ''}`),
     ...(report.skipped_skills?.length ? [`skipped (cost cap): ${report.skipped_skills.join(', ')}`] : []),
-    reportPath,
   ].join('\n');
   const host = URL.canParse(url) ? new URL(url).host : 'invalid url';
   try {

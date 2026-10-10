@@ -50,7 +50,7 @@ it('posts a summary to the webhook', async () => {
   const body = JSON.parse(String((init as RequestInit).body)) as { text: string };
   expect(body.text).toContain('o → n (exit 0)');
   expect(body.text).toContain('- a: UNCHANGED');
-  expect(body.text).toContain(join(root, 'report', 'report.md'));
+  expect(body.text).not.toContain(root);
 });
 
 it('logs only the webhook host on failure', async () => {

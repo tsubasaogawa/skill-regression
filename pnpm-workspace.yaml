@@ -4,3 +4,5 @@ allowBuilds:
   esbuild: true
   onnxruntime-node: false
   protobufjs: false
+overrides:
+  basic-ftp: ">=6.2.1"
