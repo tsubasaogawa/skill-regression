@@ -11,7 +11,7 @@ import { listSkills, resolveCases, validateCases, type SkillCases } from './case
 import { compareSkill } from './comparator/verdict.js';
 import { DEFAULTS, JUDGE_PROVIDER } from './config/defaults.js';
 import { readSuiteConfig, resolveCompareConfig, selectSkills, type CompareOverrides } from './config/suite.js';
-import { buildFixture } from './planner/fixture.js';
+import { buildFixture, buildRunDirs } from './planner/fixture.js';
 import { buildReport, pct, skillFlags, table, toMarkdown, totalCost, VERSION, type Report, type SkillReport } from './reporter/report.js';
 import { runSkill, runSkillCase, type RunOptions } from './runner/promptfoo.js';
 import type { RunResult } from './runner/types.js';
@@ -172,8 +172,9 @@ async function compare(opts: CompareOpts): Promise<void> {
 
     const runFresh = async (side: Side, repeat: number, caseName?: string) => {
       const label = [name, side, caseName].filter(Boolean).join(' ');
+      const planned = caseName ? { ...sc[side], cases: sc[side].cases.filter((c) => c.name === caseName) } : sc[side];
       const o: RunOptions = {
-        models: [sides[side].model], runs: repeat, judgeModel: opts.judge, workingDir: resolve(buildFixture(sc[side], opts.fixturesDir)),
+        models: [sides[side].model], runs: repeat, judgeModel: opts.judge, workingDir: resolve(buildRunDirs(planned, opts.fixturesDir, repeat)),
         maxConcurrency: Number(opts.concurrency), onProgress: (c, t) => console.error(`${label}: ${c}/${t}`),
       };
       const fresh = caseName ? await runSkillCase(sc[side], caseName, o, claudeVersion) : await runSkill(sc[side], o, claudeVersion);

@@ -31,9 +31,21 @@ it('relocates /tmp into the fixture in prompts and assertions', () => {
     cases: [{ ...rubricSkill.cases[0], prompt: 'write /tmp/a.txt', assertions: [{ type: 'file_exists', path: '/tmp/a.txt' }, { type: 'llm_rubric', rubric: 'saved under /tmp' }] }],
   }, { ...options, workingDir: '/fx' });
   expect(suite.tests?.[0]).toMatchObject({
-    vars: { prompt: 'write /fx/tmp/a.txt' },
-    assert: [{ type: 'javascript', config: { path: '/fx/tmp/a.txt' } }, { type: 'llm-rubric', value: 'saved under /fx/tmp' }],
+    vars: { prompt: 'write /fx/quality/0/tmp/a.txt' },
+    options: { working_dir: '/fx/quality/0' },
+    assert: [{ type: 'javascript', config: { path: '/fx/quality/0/tmp/a.txt', working_dir: '/fx/quality/0' } }, { type: 'llm-rubric', value: 'saved under /fx/quality/0/tmp' }],
   });
+});
+
+it('expands runs into one test per run, each with its own working dir, instead of a shared provider working dir', () => {
+  const suite = toTestSuite({ ...rubricSkill, cases: [aCase('a', { prompt: 'save /tmp/x' }), aCase('b c', { prompt: 'p' })] }, { ...options, runs: 2, workingDir: '/fx' });
+  const tests = suite.tests as { description: string; vars: { prompt: string }; options: { working_dir: string } }[];
+  expect(tests.map((t) => [t.description, t.options.working_dir])).toEqual([
+    ['a', '/fx/a/0'], ['a', '/fx/a/1'],
+    ['b c', expect.stringMatching(/^\/fx\/b_c-[0-9a-f]{8}\/0$/)], ['b c', expect.stringMatching(/^\/fx\/b_c-[0-9a-f]{8}\/1$/)],
+  ]);
+  expect(tests[1].vars.prompt).toBe('save /fx/a/1/tmp/x');
+  expect((suite.providers as { config: Record<string, unknown> }[])[0].config).not.toHaveProperty('working_dir');
 });
 
 const row = (label: string, desc: string, extra: Partial<EvaluateResult> = {}): EvaluateResult => ({

@@ -9,7 +9,6 @@ module.exports = (_output, context) => {
   const rel = path.relative(root, abs);
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return { pass: false, score: 0, reason: `path escapes working_dir: ${p}` };
   if (!fs.existsSync(abs)) return { pass: false, score: 0, reason: `file not found: ${abs}` };
-  // ponytail: consume the file so the next repeat of this case cannot pass on a stale output
-  fs.rmSync(abs, { recursive: true, force: true });
+  // each run has its own working_dir, so the file is left in place for inspection
   return true;
 };
