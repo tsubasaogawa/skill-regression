@@ -1,25 +1,25 @@
 # skilldrift
 
-A CLI that tells you whether a new model has regressed your Claude Code Skills.
+Test Claude Code Skills against a new model before you adopt it.
 
-skilldrift runs each Skill against the same cases on the old model and the new one, several times each.
+skilldrift runs the same cases against an old model and a candidate model, with repeated runs for each Skill.
 
-It compares the pass rates with a Beta posterior and labels each Skill REGRESSED, DEGRADED, INCONCLUSIVE, IMPROVED, or UNCHANGED.
+It compares pass rates with a Beta posterior and assigns each Skill one of five verdicts: `REGRESSED`, `DEGRADED`, `INCONCLUSIVE`, `IMPROVED`, or `UNCHANGED`.
 
-Runs go through the `anthropic:claude-agent-sdk` provider of [promptfoo](https://www.promptfoo.dev/), so your Claude Code login is enough.
+Runs use promptfoo's [`anthropic:claude-agent-sdk`](https://www.promptfoo.dev/) provider, so your Claude Code login is sufficient.
 
-## Why
+## Why use skilldrift?
 
-- Catches regressions per Skill. A model can score higher overall while individual Skills or cases get worse (see References), so skilldrift compares old and new per case instead of in aggregate.
-- Reports regressions as probabilities. LLM output varies, so one comparison proves little. skilldrift repeats each case, computes P(new < old) from a Beta posterior, and adds runs when the result stays ambiguous.
-- Fits into a Skill's CI as a pre-release regression gate.
+- Find regressions at the Skill and case level. A model can improve its aggregate score while it makes individual Skills or cases worse. skilldrift compares the two models case by case.
+- Make decisions from repeated evidence. LLM output varies, so skilldrift repeats cases, calculates `P(new < old)` with a Beta posterior, and adds runs when the result remains ambiguous.
+- Add a pre-release regression gate to your Skill's CI.
 
 ## Requirements
 
-- Node.js 22.22 or later, pnpm
-- Claude Code (Skill runs, case generation, and the `llm_rubric` judge use your login; no `ANTHROPIC_API_KEY` needed)
+- Node.js 22.22 or later and pnpm
+- Claude Code. Use your Claude Code login
 
-`llm_rubric` assertions are graded by default. Pass `--no-llm-rubric` to skip the judge and grade with deterministic assertions only.
+skilldrift grades `llm_rubric` assertions by default. Pass `--no-llm-rubric` to skip the LLM judge and use deterministic assertions.
 
 ```sh
 pnpx skilldrift --help
@@ -28,38 +28,39 @@ pnpx skilldrift --help
 ## Usage
 
 ```sh
-# Optional: scaffold suite.yaml to stop repeating --old, --runs, etc. and to pin settings in CI
+# Create suite.yaml to avoid repeating options and pin CI settings
 skilldrift init --baseline-model claude-sonnet-5-5
 
-# Optional: check which Skills and how many cases will run
+# Review the Skills and cases that will run
 skilldrift compare --dry-run
 
-# Compare the old model with a new one (--old defaults to baseline_model in suite.yaml)
+# Compare an old model with a candidate model.
+# --old defaults to baseline_model in suite.yaml.
 skilldrift compare --old claude-sonnet-5 --new claude-sonnet-5-5
 
-# Pin-point comparison
+# Compare one Skill
 skilldrift compare --old claude-sonnet-5 --new claude-sonnet-5-5 --skill my-skill
 
-# Show verdict history
+# View verdict history
 skilldrift trend --skill my-skill
 
-# Promote generated cases to hand-written ones
+# Export generated cases for review and maintenance
 skilldrift cases export my-skill > ~/.claude/skills/my-skill/evals/cases.yaml
 ```
 
-promptfoo prints `Using unknown model for Claude Agent SDK: <model>` when its model list does not include the model yet. The run is unaffected. To hide it, set `LOG_LEVEL=error`; this also hides promptfoo's other warnings.
+promptfoo prints `Using unknown model for Claude Agent SDK: <model>` when its model list does not include your model. The comparison still runs. Set `LOG_LEVEL=error` to hide that message and promptfoo's other warnings.
 
 ```sh
 LOG_LEVEL=error skilldrift compare --old claude-sonnet-5 --new claude-sonnet-5-5
 ```
 
-## Security
+## Security considerations
 
-skilldrift runs the Skills under test on your host with Claude Code's tools unrestricted (`bypassPermissions`). There is no sandbox.
+skilldrift runs each Skill on your host with Claude Code tools set to `bypassPermissions`. It does not provide a sandbox.
 
-- SKILL.md, bundled scripts, case prompts, and instructions inside generated cases can run arbitrary commands with your user's privileges.
-- A case that places `.claude/settings.json` in the fixture via `files` also activates hooks and other settings from that file.
-- Run untrusted Skills in an isolated environment such as a container or devcontainer.
+- `SKILL.md`, bundled scripts, case prompts, and instructions in generated cases can execute commands with your user account's privileges.
+- A case can add `.claude/settings.json` to its fixture through `files`. Claude Code then loads that file's hooks and other settings.
+- Run untrusted Skills in an isolated environment, such as a container or devcontainer.
 
 ## Documentation
 
@@ -70,7 +71,7 @@ skilldrift runs the Skills under test on your host with Claude Code's tools unre
 
 ## References
 
-Research and primary sources showing that a new model can regress existing Skills and prompts.
+Research and primary sources on model updates that regress existing Skills and prompts:
 
 - Anthropic, "[Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)": Skill effectiveness depends on the underlying model, so test on each model you plan to use.
 - Anthropic, "[Prompting Claude Fable 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5)": Skills written for older models can over-specify instructions for newer ones and lower output quality.
