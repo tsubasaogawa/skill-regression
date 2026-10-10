@@ -1,6 +1,7 @@
 import { evaluate, ResultFailureReason, type EvaluateResult, type EvaluateSummaryV3, type EvaluateTestSuite } from 'promptfoo';
 import { JUDGE_PROVIDER, JUDGE_SYSTEM_PROMPT } from '../config/defaults.js';
 import type { SkillCases } from '../cases/load.js';
+import { runDir } from '../planner/fixture.js';
 import type { Assertion } from '../cases/types.js';
 import type { RunResult } from './types.js';
 
@@ -8,6 +9,7 @@ export interface RunOptions {
   models: string[];
   runs: number;
   judgeModel: string;
+  /** Root built by buildRunDirs; run i of a case works in runDir(workingDir, case, i). */
   workingDir: string;
   maxConcurrency?: number;
   onProgress?: (completed: number, total: number) => void;
@@ -46,14 +48,20 @@ export function toTestSuite(sc: SkillCases, o: RunOptions): EvaluateTestSuite {
     prompts: ['{{prompt}}'],
     providers: o.models.map((model) => ({
       id: 'anthropic:claude-agent-sdk', label: `claude/${model}`,
-      config: { model, apiKeyRequired: false, working_dir: o.workingDir, setting_sources: ['project'], skills: [sc.skill], permission_mode: 'bypassPermissions', allow_dangerously_skip_permissions: true, allow_all_tools: true },
+      config: { model, apiKeyRequired: false, setting_sources: ['project'], skills: [sc.skill], permission_mode: 'bypassPermissions', allow_dangerously_skip_permissions: true, allow_all_tools: true },
     })),
     defaultTest: { options: { provider: judgeProvider(o.judgeModel) } },
-    tests: sc.cases.map((c) => ({
-      description: c.name,
-      vars: { prompt: relocateTmp(c.prompt, o.workingDir) },
-      metadata: { tags: c.tags },
-      assert: c.assertions.map((a) => toAssertion(a, sc.skill, o.workingDir)),
+    // One test per run instead of promptfoo's repeat: runs execute concurrently, so each needs its own working_dir.
+    // promptfoo merges test options into the provider config of that call only; the judge never sees working_dir.
+    tests: sc.cases.flatMap((c) => Array.from({ length: o.runs }, (_, i) => {
+      const dir = runDir(o.workingDir, c.name, i);
+      return {
+        description: c.name,
+        vars: { prompt: relocateTmp(c.prompt, dir) },
+        options: { working_dir: dir },
+        metadata: { tags: c.tags },
+        assert: c.assertions.map((a) => toAssertion(a, sc.skill, dir)),
+      };
     })),
   } as EvaluateTestSuite;
 }
@@ -86,7 +94,7 @@ export function normalize(results: EvaluateResult[], skill: string, claudeVersio
 
 export async function runSkill(sc: SkillCases, o: RunOptions, claudeVersion?: string): Promise<RunOutput> {
   const evalRecord = await evaluate(toTestSuite(sc, o), {
-    repeat: o.runs, cache: false, maxConcurrency: o.maxConcurrency ?? 2, silent: true, showProgressBar: false,
+    cache: false, maxConcurrency: o.maxConcurrency ?? 2, silent: true, showProgressBar: false,
     progressCallback: (completed, total) => o.onProgress?.(completed, total),
   });
   const raw = (await evalRecord.toEvaluateSummary()) as EvaluateSummaryV3;

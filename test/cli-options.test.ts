@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { program } from '../src/cli.js';
+import { runDir } from '../src/planner/fixture.js';
 import { runSkill } from '../src/runner/promptfoo.js';
 import { aCase, result, silence, tmpRoot, writeSkill } from './helpers.js';
 
@@ -80,7 +81,7 @@ it('uses candidate cases and input contents on both sides even when baseline eva
   const inputs: string[] = [];
   const implementation = vi.mocked(runSkill).getMockImplementation()!;
   vi.mocked(runSkill).mockImplementation(async (sc, opts, version) => {
-    inputs.push(readFileSync(join(opts.workingDir, 'evals', 'input.txt'), 'utf8'));
+    inputs.push(readFileSync(join(runDir(opts.workingDir, 'c', 0), 'evals', 'input.txt'), 'utf8'));
     return implementation(sc, opts, version);
   });
   await program.parseAsync([...base(), '--old', 'o', '--new', 'n', '--skill', 'a', '--old-skills-dir', oldSkillsDir], { from: 'user' });
