@@ -15,17 +15,13 @@ export function hashDir(dir: string): string {
   return h.digest('hex');
 }
 
-export function hashCases(cases: Case[]): string {
-  return createHash('sha256').update(JSON.stringify(cases)).digest('hex');
-}
-
 export function hashSkillMd(dir: string): string {
   return createHash('sha256').update(readFileSync(join(dir, 'SKILL.md'))).digest('hex');
 }
 
 /** Include the contents of inputs as well as their names in execution cache keys. */
 export function hashCaseInputs(cases: Case[], dir: string): string {
-  const h = createHash('sha256').update(hashCases(cases));
+  const h = createHash('sha256').update(JSON.stringify(cases));
   for (const file of [...new Set(cases.flatMap((c) => c.files))].sort()) {
     h.update('\0').update(file).update('\0').update(readFileSync(join(dir, file)));
   }

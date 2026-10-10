@@ -15,8 +15,6 @@ export interface RunOptions {
   onProgress?: (completed: number, total: number) => void;
 }
 
-export interface RunOutput { results: RunResult[]; raw: EvaluateSummaryV3 }
-
 /**
  * The llm-rubric judge runs on the Claude Code login like the Skill runs, so no ANTHROPIC_API_KEY is needed.
  * Without working_dir the provider uses a temp dir with no tools, and setting_sources defaults to [] (no user settings).
@@ -59,7 +57,6 @@ export function toTestSuite(sc: SkillCases, o: RunOptions): EvaluateTestSuite {
         description: c.name,
         vars: { prompt: relocateTmp(c.prompt, dir) },
         options: { working_dir: dir },
-        metadata: { tags: c.tags },
         assert: c.assertions.map((a) => toAssertion(a, sc.skill, dir)),
       };
     })),
@@ -79,30 +76,23 @@ export function normalize(results: EvaluateResult[], skill: string, claudeVersio
     const error = r.failureReason === ResultFailureReason.ERROR ? (r.error ?? 'provider error') : undefined;
     return {
       skill, case: name, agent, model, run_idx,
-      passed: r.success, score: r.score,
+      passed: r.success,
       triggered: calls.some((c) => c.name === skill && !c.is_error),
       judge_dependent: components.some((c) => c.assertion?.type === 'llm-rubric'),
       deterministic_passed: components.length ? components.filter((c) => c.assertion?.type !== 'llm-rubric').every((c) => c.pass) : r.success,
       ...(error ? { error } : {}),
       ...(r.success ? {} : { failed_assertions: components.filter((c) => !c.pass).map((c) => c.assertion?.type ?? 'unknown'), excerpt: String(r.response?.output ?? '').slice(0, 300) }),
       ...(r.cost != null ? { cost_usd: r.cost } : {}),
-      latency_ms: r.latencyMs,
       ...(claudeVersion ? { claude_version: claudeVersion } : {}),
     };
   });
 }
 
-export async function runSkill(sc: SkillCases, o: RunOptions, claudeVersion?: string): Promise<RunOutput> {
+export async function runSkill(sc: SkillCases, o: RunOptions, claudeVersion?: string): Promise<RunResult[]> {
   const evalRecord = await evaluate(toTestSuite(sc, o), {
     cache: false, maxConcurrency: o.maxConcurrency ?? 2, silent: true, showProgressBar: false,
     progressCallback: (completed, total) => o.onProgress?.(completed, total),
   });
-  const raw = (await evalRecord.toEvaluateSummary()) as EvaluateSummaryV3;
-  return { results: normalize(raw.results, sc.skill, claudeVersion), raw };
-}
-
-export function runSkillCase(sc: SkillCases, caseName: string, o: RunOptions, claudeVersion?: string): Promise<RunOutput> {
-  const testCase = sc.cases.find((c) => c.name === caseName);
-  if (!testCase) throw new Error(`case not found: ${sc.skill}/${caseName}`);
-  return runSkill({ ...sc, cases: [testCase] }, o, claudeVersion);
+  const summary = (await evalRecord.toEvaluateSummary()) as EvaluateSummaryV3;
+  return normalize(summary.results, sc.skill, claudeVersion);
 }

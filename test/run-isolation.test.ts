@@ -60,7 +60,7 @@ it('runs every case and repeat in its own fresh working directory, even when run
   workingDirs.length = 0;
 
   const sc = resolveCases(join(root, 'skills'), 's');
-  const { results } = await runSkill(sc, { models: ['m'], runs: 3, judgeModel: 'j', workingDir: resolve(buildRunDirs(sc, join(root, 'fixtures'), 3)), maxConcurrency: 2 });
+  const results = await runSkill(sc, { models: ['m'], runs: 3, judgeModel: 'j', workingDir: resolve(buildRunDirs(sc, join(root, 'fixtures'), 3)), maxConcurrency: 2 });
 
   const outcome = (name: string) => results.filter((r) => r.case === name).map((r) => [r.passed, r.failed_assertions ?? []]);
   expect(outcome('writer')).toEqual([[true, []], [true, []], [true, []]]);

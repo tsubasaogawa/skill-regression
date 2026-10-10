@@ -6,6 +6,7 @@ MODEL=${MODEL:-sonnet}
 RUNS=${RUNS:-3}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/intact/magic-word/evals" "$WORK/store"
 cat > "$WORK/intact/magic-word/SKILL.md" <<'SKILL'
 ---

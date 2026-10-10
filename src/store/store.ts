@@ -67,8 +67,4 @@ export class Store {
   saveGenerated(skill: string, skillHash: string, cases: Case[]): string {
     return writeFile(this.generatedPath(skill, skillHash), stringify(cases));
   }
-
-  saveRaw(skill: string, raw: unknown): string {
-    return writeFile(join(this.dir, 'raw', `${skill}-${Date.now()}.json`), JSON.stringify(raw, null, 2));
-  }
 }

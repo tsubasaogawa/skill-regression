@@ -6,14 +6,14 @@ import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { stringify } from 'yaml';
 import { generateCases } from './cases/generate.js';
-import { hashCases, hashCaseInputs, hashDir, hashSkillMd } from './cases/hash.js';
+import { hashCaseInputs, hashDir, hashSkillMd } from './cases/hash.js';
 import { listSkills, resolveCases, validateCases, type SkillCases } from './cases/load.js';
 import { compareSkill } from './comparator/verdict.js';
 import { DEFAULTS, JUDGE_PROVIDER } from './config/defaults.js';
 import { readSuiteConfig, resolveCompareConfig, selectSkills, type CompareOverrides } from './config/suite.js';
 import { buildFixture, buildRunDirs } from './planner/fixture.js';
 import { buildReport, pct, skillFlags, table, toMarkdown, totalCost, VERSION, type Report, type SkillReport } from './reporter/report.js';
-import { runSkill, runSkillCase, type RunOptions } from './runner/promptfoo.js';
+import { runSkill, type RunOptions } from './runner/promptfoo.js';
 import type { RunResult } from './runner/types.js';
 import { cliVersion } from './runner/version.js';
 import { cacheKey, Store } from './store/store.js';
@@ -177,10 +177,8 @@ async function compare(opts: CompareOpts): Promise<void> {
         models: [sides[side].model], runs: repeat, judgeModel: opts.judge, workingDir: resolve(buildRunDirs(planned, opts.fixturesDir, repeat)),
         maxConcurrency: Number(opts.concurrency), onProgress: (c, t) => console.error(`${label}: ${c}/${t}`),
       };
-      const fresh = caseName ? await runSkillCase(sc[side], caseName, o, claudeVersion) : await runSkill(sc[side], o, claudeVersion);
-      const appended = reindexResults(results[side], fresh.results);
+      const appended = reindexResults(results[side], await runSkill(planned, o, claudeVersion));
       spent += totalCost(appended);
-      store.saveRaw(name, fresh.raw);
       store.appendResults(keys[side], appended);
       results[side].push(...appended);
     };
@@ -223,10 +221,8 @@ async function compare(opts: CompareOpts): Promise<void> {
       comparison = compareCurrent();
     }
 
-    const sr: SkillReport = { ...comparison, flags: skillFlags(comparison, scNew.source), cases_source: scNew.source, cases_hash: hashCases(scNew.cases) };
-    const meta = { skill: name, agent: 'claude', old_model: oldModel, new_model: newModel };
-    for (const c of sr.cases) store.appendVerdict({ ...meta, case: c.name, ...c });
-    store.appendVerdict({ ...meta, case: null, verdict: sr.verdict, flags: sr.flags, aggregate: sr.aggregate, trigger: sr.trigger, keys });
+    const sr: SkillReport = { ...comparison, flags: skillFlags(comparison, scNew.source), cases_source: scNew.source };
+    store.appendVerdict({ skill: name, agent: 'claude', old_model: oldModel, new_model: newModel, case: null, verdict: sr.verdict, flags: sr.flags, aggregate: sr.aggregate, trigger: sr.trigger, keys });
     all.old.push(...results.old);
     all.new.push(...results.new);
     reports.push(sr);
@@ -243,17 +239,16 @@ async function compare(opts: CompareOpts): Promise<void> {
   else { console.log(toMarkdown(report, termWidth())); console.error(`report: ${out}`); }
   process.exitCode = report.exit_code;
   const webhook = opts.webhook ?? process.env.SKILLDRIFT_WEBHOOK_URL;
-  if (webhook) await postWebhook(webhook, report, join(out, 'report.md'));
+  if (webhook) await postWebhook(webhook, report);
 }
 
 const termWidth = () => process.stdout.isTTY ? process.stdout.columns : undefined;
 
-async function postWebhook(url: string, report: Report, reportPath: string): Promise<void> {
+async function postWebhook(url: string, report: Report): Promise<void> {
   const text = [
     `skilldrift: ${report.old_model} → ${report.new_model} (exit ${report.exit_code})`,
     ...report.skills.map((s) => `- ${s.name}: ${s.verdict}${s.flags.length ? ` [${s.flags.join(', ')}]` : ''}`),
     ...(report.skipped_skills?.length ? [`skipped (cost cap): ${report.skipped_skills.join(', ')}`] : []),
-    reportPath,
   ].join('\n');
   const host = URL.canParse(url) ? new URL(url).host : 'invalid url';
   try {
@@ -266,13 +261,12 @@ async function postWebhook(url: string, report: Report, reportPath: string): Pro
 
 program
   .command('cases')
-  .argument('<action>', 'export')
+  .command('export')
   .argument('<skill>', 'skill name')
   .description('Print resolved cases of a skill as neutral-format YAML')
   .option('--skills-dir <dir>', 'skills directory', DEFAULTS.skillsDir)
   .option('--store <dir>', 'store directory holding generated cases', DEFAULTS.store)
-  .action(async (action: string, skill: string, opts: { skillsDir: string; store: string }) => {
-    if (action !== 'export') return inputError(`unknown action: ${action}`);
+  .action(async (skill: string, opts: { skillsDir: string; store: string }) => {
     const sc = await loadSkill(new Store(opts.store), opts.skillsDir, skill).catch(inputError);
     if (!sc.cases.length) return inputError(`no generated cases for ${skill}; run compare first`);
     process.stdout.write(stringify(sc.cases));

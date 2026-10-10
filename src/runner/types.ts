@@ -5,7 +5,6 @@ export interface RunResult {
   model: string;
   run_idx: number;
   passed: boolean;
-  score: number;
   triggered: boolean;
   judge_dependent: boolean;
   deterministic_passed?: boolean;
@@ -13,6 +12,5 @@ export interface RunResult {
   failed_assertions?: string[];
   excerpt?: string;
   cost_usd?: number;
-  latency_ms: number;
   claude_version?: string;
 }

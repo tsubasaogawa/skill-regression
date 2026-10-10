@@ -2,7 +2,6 @@ import type { RunResult } from '../runner/types.js';
 import { pRegressed } from './beta.js';
 
 export type CaseVerdict = 'REGRESSED' | 'IMPROVED' | 'UNCHANGED' | 'INCONCLUSIVE';
-export type InternalVerdict = CaseVerdict | 'AMBIGUOUS';
 export type SkillVerdict = CaseVerdict | 'DEGRADED';
 
 export interface Tally { passed: number; runs: number; errors: number }
@@ -14,15 +13,10 @@ export interface CaseComparison { name: string; tags: string[]; verdict: CaseVer
 export interface Evidence { run_idx: number; failed_assertions: string[]; excerpt: string }
 export interface SkillComparison { name: string; verdict: SkillVerdict; aggregate: { old_pass_rate: number; new_pass_rate: number }; trigger: TriggerComparison | null; cases: CaseComparison[] }
 
-export function toInternalVerdict(p: number): InternalVerdict {
+export function toVerdict(p: number): CaseVerdict {
   if (p >= 0.95) return 'REGRESSED';
   if (p <= 0.05) return 'IMPROVED';
-  return p >= 0.8 ? 'AMBIGUOUS' : 'UNCHANGED';
-}
-
-export function toVerdict(p: number): CaseVerdict {
-  const verdict = toInternalVerdict(p);
-  return verdict === 'AMBIGUOUS' ? 'INCONCLUSIVE' : verdict;
+  return p >= 0.8 ? 'INCONCLUSIVE' : 'UNCHANGED';
 }
 
 /** Most severe verdict wins. */
@@ -37,7 +31,7 @@ function tally(rs: RunResult[], passed: (r: RunResult) => boolean): Tally {
 function judge(old: Tally, newer: Tally): { verdict: CaseVerdict; needsMoreRuns: boolean; p_reg: number } {
   if (!old.runs || !newer.runs) return { verdict: 'INCONCLUSIVE', needsMoreRuns: false, p_reg: 0.5 };
   const p_reg = pRegressed(old.passed, old.runs, newer.passed, newer.runs);
-  return { verdict: toVerdict(p_reg), needsMoreRuns: toInternalVerdict(p_reg) === 'AMBIGUOUS', p_reg };
+  return { verdict: toVerdict(p_reg), needsMoreRuns: p_reg >= 0.8 && p_reg < 0.95, p_reg };
 }
 
 function triggerExpectation(name: string, tags: string[]): boolean | undefined {

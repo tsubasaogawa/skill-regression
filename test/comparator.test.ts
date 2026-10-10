@@ -1,11 +1,11 @@
 import { expect, it } from 'vitest';
 import { pRegressed } from '../src/comparator/beta.js';
-import { compareCase, compareSkill, toInternalVerdict, toVerdict } from '../src/comparator/verdict.js';
+import { compareCase, compareSkill, toVerdict } from '../src/comparator/verdict.js';
 import type { RunResult } from '../src/runner/types.js';
 import { result } from './helpers.js';
 
 const runs = (model: string, c: string, passes: boolean[], error = false): RunResult[] =>
-  passes.map((p, i) => result({ case: c, model, run_idx: i, passed: p, score: p ? 1 : 0, triggered: p, ...(error ? { error: 'x' } : {}) }));
+  passes.map((p, i) => result({ case: c, model, run_idx: i, passed: p, triggered: p, ...(error ? { error: 'x' } : {}) }));
 const k = (pass: number, n: number) => Array.from({ length: n }, (_, i) => i < pass);
 
 it('pRegressed is symmetric and monotone', () => {
@@ -18,12 +18,6 @@ it.each([
   [5, 2, 'REGRESSED'], [5, 5, 'UNCHANGED'], [5, 4, 'UNCHANGED'], [5, 3, 'INCONCLUSIVE'], [2, 5, 'IMPROVED'],
 ])('5/5 vs %i/5 → %s', (o, n, v) => {
   expect(toVerdict(pRegressed(o, 5, n, 5))).toBe(v);
-});
-
-it('distinguishes the internal ambiguous band', () => {
-  expect(toInternalVerdict(0.85)).toBe('AMBIGUOUS');
-  expect(toInternalVerdict(0.96)).toBe('REGRESSED');
-  expect(toInternalVerdict(0.70)).toBe('UNCHANGED');
 });
 
 it('requests more runs for an ambiguous case', () => {
