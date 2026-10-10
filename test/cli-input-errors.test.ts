@@ -11,5 +11,5 @@ it('returns exit 3 for argument parser errors and exit 0 for help', () => {
   }
   const help = spawnSync(process.execPath, ['--import', 'tsx', cli, '--help'], { encoding: 'utf8', timeout: 15_000 });
   expect(help.status, help.stderr).toBe(0);
-  expect(help.stdout).toContain('Usage: skilldrift');
+  expect(help.stdout).toContain('Usage: skill-regression');
 }, 50_000);

@@ -19,7 +19,7 @@ function populate(sc: SkillCases, root: string, files: Iterable<string>): void {
   mkdirSync(join(root, 'tmp'));
 }
 
-/** One working directory holding the input files of every case (`skilldrift fixture`). */
+/** One working directory holding the input files of every case (`skill-regression fixture`). */
 export function buildFixture(sc: SkillCases, fixturesRoot: string): string {
   const root = join(fixturesRoot, sc.skill);
   rmSync(root, { recursive: true, force: true });

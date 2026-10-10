@@ -1,17 +1,17 @@
-# skilldrift
+# skill-regression
 
 Test Claude Code Skills against a new model before you adopt it.
 
-skilldrift runs the same cases against an old model and a candidate model, with repeated runs for each Skill.
+skill-regression runs the same cases against an old model and a candidate model, with repeated runs for each Skill.
 
 It compares pass rates with a Beta posterior and assigns each Skill one of five verdicts: `REGRESSED`, `DEGRADED`, `INCONCLUSIVE`, `IMPROVED`, or `UNCHANGED`.
 
 Runs use promptfoo's [`anthropic:claude-agent-sdk`](https://www.promptfoo.dev/) provider, so your Claude Code login is sufficient.
 
-## Why use skilldrift?
+## Why use skill-regression?
 
-- Find regressions at the Skill and case level. A model can improve its aggregate score while it makes individual Skills or cases worse. skilldrift compares the two models case by case.
-- Make decisions from repeated evidence. LLM output varies, so skilldrift repeats cases, calculates `P(new < old)` with a Beta posterior, and adds runs when the result remains ambiguous.
+- Find regressions at the Skill and case level. A model can improve its aggregate score while it makes individual Skills or cases worse. skill-regression compares the two models case by case.
+- Make decisions from repeated evidence. LLM output varies, so skill-regression repeats cases, calculates `P(new < old)` with a Beta posterior, and adds runs when the result remains ambiguous.
 - Add a pre-release regression gate to your Skill's CI.
 
 ## Requirements
@@ -19,44 +19,44 @@ Runs use promptfoo's [`anthropic:claude-agent-sdk`](https://www.promptfoo.dev/) 
 - Node.js 22.22 or later and pnpm
 - Claude Code. Use your Claude Code login
 
-skilldrift grades `llm_rubric` assertions by default. Pass `--no-llm-rubric` to skip the LLM judge and use deterministic assertions.
+skill-regression grades `llm_rubric` assertions by default. Pass `--no-llm-rubric` to skip the LLM judge and use deterministic assertions.
 
 ```sh
-pnpx skilldrift --help
+pnpx skill-regression --help
 ```
 
 ## Usage
 
 ```sh
 # Create suite.yaml to avoid repeating options and pin CI settings
-skilldrift init --baseline-model claude-sonnet-5-5
+skill-regression init --baseline-model claude-sonnet-5-5
 
 # Review the Skills and cases that will run
-skilldrift compare --dry-run
+skill-regression compare --dry-run
 
 # Compare an old model with a candidate model.
 # --old defaults to baseline_model in suite.yaml.
-skilldrift compare --old claude-sonnet-5 --new claude-sonnet-5-5
+skill-regression compare --old claude-sonnet-5 --new claude-sonnet-5-5
 
 # Compare one Skill
-skilldrift compare --old claude-sonnet-5 --new claude-sonnet-5-5 --skill my-skill
+skill-regression compare --old claude-sonnet-5 --new claude-sonnet-5-5 --skill my-skill
 
 # View verdict history
-skilldrift trend --skill my-skill
+skill-regression trend --skill my-skill
 
 # Export generated cases for review and maintenance
-skilldrift cases export my-skill > ~/.claude/skills/my-skill/evals/cases.yaml
+skill-regression cases export my-skill > ~/.claude/skills/my-skill/evals/cases.yaml
 ```
 
 promptfoo prints `Using unknown model for Claude Agent SDK: <model>` when its model list does not include your model. The comparison still runs. Set `LOG_LEVEL=error` to hide that message and promptfoo's other warnings.
 
 ```sh
-LOG_LEVEL=error skilldrift compare --old claude-sonnet-5 --new claude-sonnet-5-5
+LOG_LEVEL=error skill-regression compare --old claude-sonnet-5 --new claude-sonnet-5-5
 ```
 
 ## Security considerations
 
-skilldrift runs each Skill on your host with Claude Code tools set to `bypassPermissions`. It does not provide a sandbox.
+skill-regression runs each Skill on your host with Claude Code tools set to `bypassPermissions`. It does not provide a sandbox.
 
 - `SKILL.md`, bundled scripts, case prompts, and instructions in generated cases can execute commands with your user account's privileges.
 - A case can add `.claude/settings.json` to its fixture through `files`. Claude Code then loads that file's hooks and other settings.

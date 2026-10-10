@@ -15,7 +15,7 @@ afterEach(() => {
 
 /** Fresh temp dir, removed after the test. */
 export function tmpRoot(): string {
-  const d = mkdtempSync(join(tmpdir(), 'skilldrift-'));
+  const d = mkdtempSync(join(tmpdir(), 'skill-regression-'));
   dirs.push(d);
   return d;
 }

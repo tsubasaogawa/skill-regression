@@ -18,7 +18,7 @@ import type { RunResult } from './runner/types.js';
 import { cliVersion } from './runner/version.js';
 import { cacheKey, Store } from './store/store.js';
 
-export const program = new Command().name('skilldrift').version(VERSION).exitOverride();
+export const program = new Command().name('skill-regression').version(VERSION).exitOverride();
 
 const SIDES = ['old', 'new'] as const;
 type Side = typeof SIDES[number];
@@ -246,7 +246,7 @@ const termWidth = () => process.stdout.isTTY ? process.stdout.columns : undefine
 
 async function postWebhook(url: string, report: Report): Promise<void> {
   const text = [
-    `skilldrift: ${report.old_model} → ${report.new_model} (exit ${report.exit_code})`,
+    `skill-regression: ${report.old_model} → ${report.new_model} (exit ${report.exit_code})`,
     ...report.skills.map((s) => `- ${s.name}: ${s.verdict}${s.flags.length ? ` [${s.flags.join(', ')}]` : ''}`),
     ...(report.skipped_skills?.length ? [`skipped (cost cap): ${report.skipped_skills.join(', ')}`] : []),
   ].join('\n');
@@ -274,7 +274,7 @@ program
 
 export function suiteTemplate(o: { baselineModel: string; skills: string[] }): string {
   return [
-    '# skilldrift suite configuration (see docs/configuration.md)',
+    '# skill-regression suite configuration (see docs/configuration.md)',
     `baseline_model: ${o.baselineModel}`,
     '',
     '# Skills to compare. Omit to compare every skill under --skills-dir.',

@@ -17,7 +17,7 @@ const FLAG_LEGEND: Record<Flag, string> = {
 };
 export interface SkillReport extends SkillComparison { flags: Flag[]; cases_source: CaseSource }
 export interface Report {
-  skilldrift_version: string; promptfoo_version: string; agent: string;
+  skill_regression_version: string; promptfoo_version: string; agent: string;
   old_model: string; new_model: string; claude_version?: string;
   started_at: string; finished_at: string;
   cost_usd: { old: number; new: number };
@@ -53,7 +53,7 @@ export const totalCost = (rs: RunResult[]): number => rs.reduce((s, r) => s + (r
 
 export function buildReport(skills: SkillReport[], results: { old: RunResult[]; new: RunResult[] }, o: { oldModel: string; newModel: string; startedAt: Date; claudeVersion?: string; skipped?: string[] }): Report {
   return {
-    skilldrift_version: VERSION,
+    skill_regression_version: VERSION,
     promptfoo_version: require(require.resolve('promptfoo').replace(/dist[\/].*$/, 'package.json')).version,
     agent: 'claude', old_model: o.oldModel, new_model: o.newModel,
     ...(o.claudeVersion ? { claude_version: o.claudeVersion } : {}),
@@ -85,7 +85,7 @@ export function table(header: string[], rows: string[][], maxWidth = Infinity): 
 
 export function toMarkdown(r: Report, maxWidth?: number): string {
   const lines = [
-    `# skilldrift: ${r.old_model} → ${r.new_model}`, '',
+    `# skill-regression: ${r.old_model} → ${r.new_model}`, '',
     ...(r.skipped_skills?.length ? [`skipped (cost cap): ${r.skipped_skills.join(', ')}`, ''] : []),
     `exit code ${r.exit_code}, cost old $${r.cost_usd.old.toFixed(2)} / new $${r.cost_usd.new.toFixed(2)}, claude ${r.claude_version ?? '?'}, promptfoo ${r.promptfoo_version}`, '',
     '## Summary', '',

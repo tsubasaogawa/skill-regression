@@ -8,7 +8,7 @@ const xdgDataHome = process.env.XDG_DATA_HOME;
 const dataHome = xdgDataHome && isAbsolute(xdgDataHome) ? xdgDataHome : join(homedir(), '.local', 'share');
 
 export const DEFAULTS = {
-  suitePath: join(dataHome, 'skilldrift', 'suite.yaml'),
+  suitePath: join(dataHome, 'skill-regression', 'suite.yaml'),
   skillsDir: join(homedir(), '.claude', 'skills'),
   fixturesDir: 'fixtures',
   runs: 3,
@@ -16,6 +16,6 @@ export const DEFAULTS = {
   judgeModel: 'claude-haiku-4-5-20251001',
   caseGeneratorModel: 'claude-sonnet-5-5',
   concurrency: 2,
-  store: join(dataHome, 'skilldrift'),
+  store: join(dataHome, 'skill-regression'),
   format: 'both',
 } as const;

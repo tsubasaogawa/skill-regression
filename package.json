@@ -1,19 +1,19 @@
 {
-  "name": "skilldrift",
+  "name": "skill-regression",
   "version": "0.1.0",
   "description": "Detect skill regressions when a new model arrives",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tsubasaogawa/skilldrift.git"
+    "url": "git+https://github.com/tsubasaogawa/skill-regression.git"
   },
   "files": [
     "dist",
     "assets"
   ],
   "bin": {
-    "skilldrift": "dist/cli.js"
+    "skill-regression": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
