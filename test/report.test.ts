@@ -7,7 +7,7 @@ import { result } from './helpers.js';
 const c = (verdict: CaseComparison['verdict'], judge = false, errors = 0): CaseComparison =>
   ({ name: 'c', tags: [], verdict, needsMoreRuns: false, judge_dependent: judge, old: { passed: 5, runs: 5, errors: 0 }, new: { passed: 2, runs: 5, errors }, p_reg: 0.97, evidence: [{ run_idx: 0, failed_assertions: ['skill-used'], excerpt: 'out' }] });
 const s = (cases: CaseComparison[], source: 'evals.json' | 'generated' = 'evals.json'): SkillReport => {
-  const base = { name: 's', verdict: cases[0].verdict, aggregate: { old_pass_rate: 1, new_pass_rate: 0.4 }, trigger: null, cases, flags: [] as SkillReport['flags'], cases_source: source, cases_hash: 'h' };
+  const base = { name: 's', verdict: cases[0].verdict, aggregate: { old_pass_rate: 1, new_pass_rate: 0.4 }, trigger: null, cases, flags: [] as SkillReport['flags'], cases_source: source };
   return { ...base, flags: skillFlags(base, source) };
 };
 
@@ -24,10 +24,8 @@ it('flags and markdown', () => {
   const sr = s([c('REGRESSED', true, 1)], 'generated');
   expect(sr.flags).toEqual(['generated-cases', 'judge-dependent', 'has-errors']);
   const r = buildReport([sr], { old: [], new: [] }, { oldModel: 'a', newModel: 'b', startedAt: new Date() });
-  expect(r.cost_usd.judge).toBeNull();
   expect(r.exit_code).toBe(2);
   const md = toMarkdown(r).replace(/ {2,}/g, ' ');
-  expect(md).toContain('judge unavailable');
   expect(md).toContain('| s | REGRESSED | 100% | 40% | generated-cases, judge-dependent, has-errors |');
   expect(md).toContain('- `has-errors`: some runs errored and were excluded');
   expect(md).not.toContain('`low-power`:');
@@ -66,10 +64,10 @@ it('flags low power when a total failure could not have been detected', () => {
 
 it('exits 1 for deterministic regression in mixed rubric cases and reports rubric-only regression without exit 1', () => {
   const results = (passed: boolean, deterministic: boolean) =>
-    Array.from({ length: 5 }, (_, run_idx) => result({ case: 'mixed', run_idx, passed, score: passed ? 1 : 0, judge_dependent: true, deterministic_passed: deterministic }));
+    Array.from({ length: 5 }, (_, run_idx) => result({ case: 'mixed', run_idx, passed, judge_dependent: true, deterministic_passed: deterministic }));
   const report = (deterministic: boolean) => {
     const comparison = compareSkill('s', results(true, true), results(false, deterministic));
-    return { ...comparison, flags: skillFlags(comparison, 'cases.yaml'), cases_source: 'cases.yaml' as const, cases_hash: 'h' };
+    return { ...comparison, flags: skillFlags(comparison, 'cases.yaml'), cases_source: 'cases.yaml' as const };
   };
   expect(exitCode([report(false)])).toBe(1);
   expect(exitCode([report(true)])).toBe(0);

@@ -6,15 +6,15 @@ import { resolveCases } from '../src/cases/load.js';
 import type { Case } from '../src/cases/types.js';
 import { program } from '../src/cli.js';
 import { JUDGE_PROVIDER } from '../src/config/defaults.js';
-import { runSkill, runSkillCase } from '../src/runner/promptfoo.js';
+import { runSkill } from '../src/runner/promptfoo.js';
 import type { RunResult } from '../src/runner/types.js';
 import { cacheKey, Store } from '../src/store/store.js';
 import { aCase, result, silence, tmpRoot, writeSkill } from './helpers.js';
 
-vi.mock('../src/runner/promptfoo.js', () => ({ runSkill: vi.fn(), runSkillCase: vi.fn() }));
+vi.mock('../src/runner/promptfoo.js', () => ({ runSkill: vi.fn() }));
 vi.mock('../src/runner/version.js', () => ({ cliVersion: vi.fn(() => 'claude-test') }));
 
-afterEach(() => { vi.mocked(runSkill).mockReset(); vi.mocked(runSkillCase).mockReset(); });
+afterEach(() => vi.mocked(runSkill).mockReset());
 
 /** One skill "demo" with the given cases; compare args write a JSON report to <root>/report. */
 function setup(cases: Case[], suite: string) {
@@ -28,22 +28,21 @@ function setup(cases: Case[], suite: string) {
 }
 const series = (name: string, model: string, runs: number, at: (i: number) => Partial<RunResult>): RunResult[] =>
   Array.from({ length: runs }, (_, run_idx) => result({ skill: 'demo', case: name, model, run_idx, ...at(run_idx) }));
-const pass = (p: boolean) => ({ passed: p, score: p ? 1 : 0 });
+const pass = (p: boolean) => ({ passed: p });
+// The first two runSkill calls run every case on old and new; later calls rerun one ambiguous case each.
+const rerun = () => vi.mocked(runSkill).mock.calls.length > 2;
+const reruns = () => vi.mocked(runSkill).mock.calls.slice(2);
 const isOld = (model: string) => model === 'old-model';
 
 it('reruns only ambiguous cases, caps the last batch, and appends results under the same cache key', async () => {
   const names = ['resolves', 'at-limit', 'stable'];
   const { root, skillsDir, args } = setup(names.map((n) => aCase(n)), 'baseline_model: old-model\nskills: [demo]\nruns: 5\naggregate_drop_pt: 0.1\n');
-  vi.mocked(runSkill).mockImplementation(async (sc, o) => ({
-    results: sc.cases.flatMap((c) => series(c.name, o.models[0], o.runs, (i) => pass(isOld(o.models[0]) || c.name === 'stable' || i < 3))), raw: {} as never,
-  }));
-  vi.mocked(runSkillCase).mockImplementation(async (_sc, name, o) => ({
-    results: series(name, o.models[0], o.runs, () => pass(name === 'at-limit' || isOld(o.models[0]))), raw: {} as never,
-  }));
+  vi.mocked(runSkill).mockImplementation(async (sc, o) => sc.cases.flatMap((c) => series(c.name, o.models[0], o.runs, (i) =>
+    pass(rerun() ? c.name === 'at-limit' || isOld(o.models[0]) : isOld(o.models[0]) || c.name === 'stable' || i < 3))));
 
   await program.parseAsync([...args, '--runs-max', '12'], { from: 'user' });
 
-  expect(vi.mocked(runSkillCase).mock.calls.map(([, name, o]) => [name, o.models[0], o.runs])).toEqual([
+  expect(reruns().map(([sc, o]) => [sc.cases[0].name, o.models[0], o.runs])).toEqual([
     ['resolves', 'old-model', 5],
     ['resolves', 'new-model', 5],
     ['at-limit', 'old-model', 5],
@@ -61,18 +60,17 @@ it('reruns only ambiguous cases, caps the last batch, and appends results under 
   expect(names.map((n) => count(stored('old-model'), n))).toEqual([10, 12, 5]);
   expect(names.map((n) => count(stored('new-model'), n))).toEqual([10, 12, 5]);
 
-  const verdicts = readFileSync(join(root, 'store', 'verdicts.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { case: string | null; verdict: string });
-  expect(Object.fromEntries(verdicts.filter((v) => v.case).map((v) => [v.case, v.verdict]))).toEqual({ resolves: 'REGRESSED', 'at-limit': 'INCONCLUSIVE', stable: 'UNCHANGED' });
+  const report = JSON.parse(readFileSync(join(root, 'report', 'report.json'), 'utf8')) as { skills: { cases: { name: string; verdict: string }[] }[] };
+  expect(Object.fromEntries(report.skills[0].cases.map((c) => [c.name, c.verdict]))).toEqual({ resolves: 'REGRESSED', 'at-limit': 'INCONCLUSIVE', stable: 'UNCHANGED' });
 });
 
 it('reruns a trigger-tagged case when only trigger correctness is ambiguous', async () => {
   const { root, args } = setup([aCase('should-trigger', { tags: ['trigger'] })], 'baseline_model: old-model\nskills: [demo]\nruns: 5\n');
-  vi.mocked(runSkill).mockImplementation(async (_sc, o) => ({ results: series('should-trigger', o.models[0], o.runs, (i) => ({ triggered: isOld(o.models[0]) || i < 3 })), raw: {} as never }));
-  vi.mocked(runSkillCase).mockImplementation(async (_sc, _n, o) => ({ results: series('should-trigger', o.models[0], o.runs, () => ({ triggered: isOld(o.models[0]) })), raw: {} as never }));
+  vi.mocked(runSkill).mockImplementation(async (_sc, o) => series('should-trigger', o.models[0], o.runs, (i) => ({ triggered: isOld(o.models[0]) || (!rerun() && i < 3) })));
 
   await program.parseAsync([...args, '--runs-max', '10'], { from: 'user' });
 
-  expect(vi.mocked(runSkillCase).mock.calls.map(([, , o]) => [o.models[0], o.runs])).toEqual([['old-model', 5], ['new-model', 5]]);
+  expect(reruns().map(([, o]) => [o.models[0], o.runs])).toEqual([['old-model', 5], ['new-model', 5]]);
   expect(process.exitCode).toBe(1);
   const report = JSON.parse(readFileSync(join(root, 'report', 'report.json'), 'utf8')) as { skills: { verdict: string; trigger: object }[] };
   expect(report.skills[0].verdict).toBe('REGRESSED');
@@ -81,14 +79,11 @@ it('reruns a trigger-tagged case when only trigger correctness is ambiguous', as
 
 it('reruns all trigger cases when aggregate recall is ambiguous but each case is unchanged', async () => {
   const { args } = setup(['t1', 't2'].map((n) => aCase(n, { tags: ['trigger'] })), 'baseline_model: old-model\nruns: 5\n');
-  vi.mocked(runSkill).mockImplementation(async (sc, o) => ({
-    results: sc.cases.flatMap((c) => series(c.name, o.models[0], o.runs, (i) => ({ triggered: isOld(o.models[0]) || i < 4 }))), raw: {} as never,
-  }));
-  vi.mocked(runSkillCase).mockImplementation(async (_sc, name, o) => ({ results: series(name, o.models[0], o.runs, () => ({ triggered: isOld(o.models[0]) })), raw: {} as never }));
+  vi.mocked(runSkill).mockImplementation(async (sc, o) => sc.cases.flatMap((c) => series(c.name, o.models[0], o.runs, (i) => ({ triggered: isOld(o.models[0]) || (!rerun() && i < 4) }))));
 
   await program.parseAsync([...args, '--runs-max', '10'], { from: 'user' });
 
-  expect(vi.mocked(runSkillCase).mock.calls.map(([, name, o]) => [name, o.models[0]])).toEqual([
+  expect(reruns().map(([sc, o]) => [sc.cases[0].name, o.models[0]])).toEqual([
     ['t1', 'old-model'], ['t1', 'new-model'], ['t2', 'old-model'], ['t2', 'new-model'],
   ]);
   expect(process.exitCode).toBe(1);
@@ -99,7 +94,7 @@ it.each([
   [false, ['skill_used']],
 ])('llm_rubric enabled=%s passes assertions %j to the runner', async (enabled, expected) => {
   const { args } = setup([aCase('q', { assertions: [{ type: 'skill_used' }, { type: 'llm_rubric', rubric: 'r' }] })], 'baseline_model: old-model\nruns: 1\n');
-  vi.mocked(runSkill).mockImplementation(async (sc, o) => ({ results: sc.cases.flatMap((c) => series(c.name, o.models[0], o.runs, () => pass(true))), raw: {} as never }));
+  vi.mocked(runSkill).mockImplementation(async (sc, o) => sc.cases.flatMap((c) => series(c.name, o.models[0], o.runs, () => pass(true))));
 
   await program.parseAsync(enabled ? args : [...args, '--no-llm-rubric'], { from: 'user' });
 

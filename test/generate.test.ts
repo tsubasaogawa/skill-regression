@@ -9,7 +9,7 @@ import { program } from '../src/cli.js';
 import { runSkill } from '../src/runner/promptfoo.js';
 import { result, silence, tmpRoot, writeSkill } from './helpers.js';
 
-vi.mock('../src/runner/promptfoo.js', () => ({ runSkill: vi.fn(), runSkillCase: vi.fn() }));
+vi.mock('../src/runner/promptfoo.js', () => ({ runSkill: vi.fn() }));
 vi.mock('../src/runner/version.js', () => ({ cliVersion: vi.fn(() => 'claude-test') }));
 vi.mock('../src/cases/generate.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/cases/generate.js')>()),
@@ -40,10 +40,7 @@ it('generates once per skill hash, stores the cases, and shares them between old
   for (const dir of [skillsDir, oldSkillsDir]) writeSkill(dir, 'demo', undefined, `---\nname: demo\ndescription: ${dir}\n---\n`);
   const generated = toCases(items);
   vi.mocked(generateCases).mockResolvedValue(generated);
-  vi.mocked(runSkill).mockImplementation(async (sc, o) => ({
-    results: sc.cases.map((c) => result({ skill: 'demo', case: c.name, model: o.models[0], triggered: c.tags[0] !== 'no-trigger' })),
-    raw: {} as never,
-  }));
+  vi.mocked(runSkill).mockImplementation(async (sc, o) => sc.cases.map((c) => result({ skill: 'demo', case: c.name, model: o.models[0], triggered: c.tags[0] !== 'no-trigger' })));
   silence();
 
   const args = ['compare', '--skills-dir', skillsDir, '--old-skills-dir', oldSkillsDir, '--fixtures-dir', join(root, 'fixtures'), '--old', 'old-model', '--new', 'new-model', '--runs', '1', '--store', storeDir, '--out', join(root, 'report'), '--format', 'json', '--case-generator', 'gen-model'];

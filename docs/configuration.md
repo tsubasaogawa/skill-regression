@@ -43,8 +43,7 @@ Defaults to `$XDG_DATA_HOME/skilldrift/`, or `~/.local/share/skilldrift/` when `
 
 ```
 results.jsonl      # normalized result per run (the cache itself)
-verdicts.jsonl     # verdict history, one row per case plus one per Skill (case: null). Source for trend
-raw/               # raw promptfoo JSON
+verdicts.jsonl     # verdict history, one row per Skill. Source for trend
 generated/         # LLM-generated cases
 reports/claude/<new-model>/<timestamp>/report.md, report.json
 ```

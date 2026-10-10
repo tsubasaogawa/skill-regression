@@ -15,12 +15,12 @@ const FLAG_LEGEND: Record<Flag, string> = {
   'low-power': 'too few runs: UNCHANGED does not mean no regression',
   'has-errors': 'some runs errored and were excluded',
 };
-export interface SkillReport extends SkillComparison { flags: Flag[]; cases_source: CaseSource; cases_hash: string }
+export interface SkillReport extends SkillComparison { flags: Flag[]; cases_source: CaseSource }
 export interface Report {
   skilldrift_version: string; promptfoo_version: string; agent: string;
   old_model: string; new_model: string; claude_version?: string;
   started_at: string; finished_at: string;
-  cost_usd: { old: number; new: number; judge: number | null };
+  cost_usd: { old: number; new: number };
   exit_code: number; skills: SkillReport[]; skipped_skills?: string[];
 }
 
@@ -58,7 +58,7 @@ export function buildReport(skills: SkillReport[], results: { old: RunResult[]; 
     agent: 'claude', old_model: o.oldModel, new_model: o.newModel,
     ...(o.claudeVersion ? { claude_version: o.claudeVersion } : {}),
     started_at: o.startedAt.toISOString(), finished_at: new Date().toISOString(),
-    cost_usd: { old: totalCost(results.old), new: totalCost(results.new), judge: null },
+    cost_usd: { old: totalCost(results.old), new: totalCost(results.new) },
     exit_code: exitCode(skills, o.skipped), skills,
     ...(o.skipped?.length ? { skipped_skills: o.skipped } : {}),
   };
@@ -84,11 +84,10 @@ export function table(header: string[], rows: string[][], maxWidth = Infinity): 
 }
 
 export function toMarkdown(r: Report, maxWidth?: number): string {
-  const judgeCost = r.cost_usd.judge == null ? 'unavailable' : `$${r.cost_usd.judge.toFixed(2)}`;
   const lines = [
     `# skilldrift: ${r.old_model} → ${r.new_model}`, '',
     ...(r.skipped_skills?.length ? [`skipped (cost cap): ${r.skipped_skills.join(', ')}`, ''] : []),
-    `exit code ${r.exit_code}, cost old $${r.cost_usd.old.toFixed(2)} / new $${r.cost_usd.new.toFixed(2)} / judge ${judgeCost}, claude ${r.claude_version ?? '?'}, promptfoo ${r.promptfoo_version}`, '',
+    `exit code ${r.exit_code}, cost old $${r.cost_usd.old.toFixed(2)} / new $${r.cost_usd.new.toFixed(2)}, claude ${r.claude_version ?? '?'}, promptfoo ${r.promptfoo_version}`, '',
     '## Summary', '',
     ...table(['Skill', 'Verdict', 'Old', 'New', 'Flags'],
       r.skills.map((s) => [s.name, s.verdict, pct(s.aggregate.old_pass_rate), pct(s.aggregate.new_pass_rate), s.flags.join(', ')]), maxWidth),

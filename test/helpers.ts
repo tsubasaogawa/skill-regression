@@ -35,7 +35,7 @@ export function writeSkill(skillsDir: string, name: string, cases?: Case[], md =
 export const aCase = (name: string, over: Partial<Case> = {}): Case => ({ name, prompt: name, tags: ['quality'], files: [], assertions: [], ...over });
 
 export const result = (over: Partial<RunResult> = {}): RunResult =>
-  ({ skill: 's', case: 'c', agent: 'claude', model: 'm', run_idx: 0, passed: true, score: 1, triggered: true, judge_dependent: false, latency_ms: 0, ...over });
+  ({ skill: 's', case: 'c', agent: 'claude', model: 'm', run_idx: 0, passed: true, triggered: true, judge_dependent: false, ...over });
 
 export function silence(): void {
   vi.spyOn(console, 'log').mockImplementation(() => {});

@@ -6,7 +6,7 @@ import { runDir } from '../src/planner/fixture.js';
 import { runSkill } from '../src/runner/promptfoo.js';
 import { aCase, result, silence, tmpRoot, writeSkill } from './helpers.js';
 
-vi.mock('../src/runner/promptfoo.js', () => ({ runSkill: vi.fn(), runSkillCase: vi.fn() }));
+vi.mock('../src/runner/promptfoo.js', () => ({ runSkill: vi.fn() }));
 vi.mock('../src/runner/version.js', () => ({ cliVersion: vi.fn(() => 'claude-test') }));
 
 let root: string, skillsDir: string;
@@ -18,10 +18,7 @@ beforeEach(() => {
   for (const s of ['a', 'b']) writeSkill(skillsDir, s, [aCase('c')]);
   writeFileSync(join(root, 'none.yaml'), '');
   silence();
-  vi.mocked(runSkill).mockImplementation(async (sc, o) => ({
-    results: sc.cases.map((c) => result({ skill: sc.skill, case: c.name, model: o.models[0], cost_usd: 2 })),
-    raw: {} as never,
-  }));
+  vi.mocked(runSkill).mockImplementation(async (sc, o) => sc.cases.map((c) => result({ skill: sc.skill, case: c.name, model: o.models[0], cost_usd: 2 })));
 });
 afterEach(() => vi.mocked(runSkill).mockReset());
 
